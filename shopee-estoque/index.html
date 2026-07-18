@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Estoque Shopee</title>
+  <link rel="stylesheet" href="style.css"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet"/>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8h14M5 8a2 2 0 010-4h14a2 2 0 010 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8"/></svg>
+      </div>
+      <div>
+        <p class="brand-name">Estoque Shopee</p>
+        <p class="brand-sub">Upseller · NF-e</p>
+      </div>
+    </div>
+    <nav>
+      <button class="nav-item active" onclick="switchTab('dashboard')" data-tab="dashboard">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        Dashboard
+      </button>
+      <button class="nav-item" onclick="switchTab('xml')" data-tab="xml">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+        Importar XML
+      </button>
+      <button class="nav-item" onclick="switchTab('estoque')" data-tab="estoque">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+        Estoque
+      </button>
+      <button class="nav-item" onclick="switchTab('historico')" data-tab="historico">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        Histórico
+      </button>
+    </nav>
+    <div class="sidebar-footer">
+      <span class="version-badge">v1.0</span>
+    </div>
+  </aside>
+
+  <main class="main">
+
+    <!-- DASHBOARD -->
+    <section class="tab-section active" id="tab-dashboard">
+      <div class="page-header">
+        <h1>Dashboard</h1>
+        <p class="page-sub">Visão geral do estoque em tempo real</p>
+      </div>
+      <div class="metric-grid">
+        <div class="metric">
+          <p class="metric-label">Total de produtos</p>
+          <p class="metric-value" id="m-total">0</p>
+        </div>
+        <div class="metric">
+          <p class="metric-label">Estoque baixo / zerado</p>
+          <p class="metric-value danger" id="m-low">0</p>
+        </div>
+        <div class="metric">
+          <p class="metric-label">XMLs importados hoje</p>
+          <p class="metric-value success" id="m-xml">0</p>
+        </div>
+      </div>
+      <div class="alert warn" id="alert-low" style="display:none">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        Atenção: há produtos com estoque baixo ou zerado.
+      </div>
+      <div class="card">
+        <table>
+          <thead><tr><th>Produto</th><th>Cor</th><th>SKU</th><th>Qtd</th><th>Status</th></tr></thead>
+          <tbody id="dash-table"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- IMPORTAR XML -->
+    <section class="tab-section" id="tab-xml">
+      <div class="page-header">
+        <h1>Importar XML</h1>
+        <p class="page-sub">Exporte do Upseller e arraste aqui — até 2× por dia</p>
+      </div>
+      <div class="card">
+        <div class="drop-zone" id="drop-zone" onclick="document.getElementById('xml-input').click()">
+          <input type="file" id="xml-input" accept=".xml" multiple style="display:none" onchange="handleFiles(this.files)"/>
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/></svg>
+          <p class="drop-title">Arraste os arquivos XML aqui</p>
+          <p class="drop-sub">ou clique para selecionar — múltiplos arquivos aceitos</p>
+        </div>
+        <div id="file-chips"></div>
+
+        <div id="preview-area" style="display:none; margin-top:1.5rem">
+          <p class="section-label">Itens encontrados nos XMLs</p>
+          <table>
+            <thead><tr><th>NF</th><th>SKU</th><th>Qtd</th><th>Vinculação</th></tr></thead>
+            <tbody id="preview-body"></tbody>
+          </table>
+          <div class="action-row">
+            <button class="btn ghost" onclick="limparXML()">Cancelar</button>
+            <button class="btn primary" onclick="aplicarXML()">Deduzir do estoque</button>
+          </div>
+        </div>
+
+        <div id="result-box" style="display:none; margin-top:1rem">
+          <p class="section-label">Resultado da importação</p>
+          <div id="result-rows"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <p class="section-label">Como exportar do Upseller</p>
+        <ol class="steps">
+          <li>Acesse <strong>Pedidos → Brasil NF-e → Todas as NF-e</strong></li>
+          <li>Clique em <strong>Exportar → Exportar por Data</strong></li>
+          <li>Selecione o período desejado (ex.: últimas 12h)</li>
+          <li>Baixe o ZIP, extraia os XMLs e arraste na área acima</li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ESTOQUE -->
+    <section class="tab-section" id="tab-estoque">
+      <div class="page-header">
+        <h1>Estoque</h1>
+        <p class="page-sub">Gerencie produtos e quantidades</p>
+      </div>
+      <div class="card">
+        <p class="section-label">Adicionar / editar produto</p>
+        <div class="form-row">
+          <div class="form-group grow">
+            <label>Nome do produto</label>
+            <input type="text" id="p-nome" placeholder="Ex: Suporte Toalha"/>
+          </div>
+          <div class="form-group">
+            <label>SKU</label>
+            <input type="text" id="p-sku" placeholder="Ex: SUP-TOALHA-BR"/>
+          </div>
+          <div class="form-group sm">
+            <label>Qtd inicial</label>
+            <input type="number" id="p-qtd" min="0" value="0"/>
+          </div>
+          <div class="form-group sm">
+            <label>Alerta mín.</label>
+            <input type="number" id="p-min" min="1" value="5"/>
+          </div>
+          <button class="btn primary" onclick="adicionarProduto()">Salvar</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="table-header">
+          <p class="section-label" id="count-label">Produtos</p>
+          <input type="text" class="search" placeholder="Buscar por nome ou SKU…" oninput="renderEstoque(this.value)"/>
+        </div>
+        <table>
+          <thead><tr><th>Produto</th><th>Cor</th><th>SKU</th><th>Qtd</th><th>Alerta</th><th>Status</th><th></th></tr></thead>
+          <tbody id="est-table"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- HISTÓRICO -->
+    <section class="tab-section" id="tab-historico">
+      <div class="page-header">
+        <h1>Histórico</h1>
+        <p class="page-sub">Todas as movimentações registradas</p>
+      </div>
+      <div class="card">
+        <div id="historico-list">
+          <p class="empty-state">Sem movimentações registradas</p>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
