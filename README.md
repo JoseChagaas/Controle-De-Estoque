@@ -12,7 +12,7 @@ O projeto foi construído utilizando a stack clássica da web, sem frameworks pe
 
 *   **HTML5:** Estruturação semântica da página.
 *   **CSS3:** Estilização moderna e layout responsivo.
-*   **JavaScript (ES6+):** Manipulação da DOM, persistência de dados e lógica de parsing dos arquivos XML.
+*   **JavaScript:** Manipulação da DOM, persistência de dados e lógica de parsing dos arquivos XML.
 
 ---
 
