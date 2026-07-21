@@ -6,6 +6,10 @@ let xmlHoje   = parseInt(sessionStorage.getItem('xmlHoje') || '0');
 
 const hoje = () => new Date().toLocaleDateString('pt-BR');
 
+// Remove hífens e converte para maiúsculo — usado para comparar SKUs do XML com o cadastro
+// Ex: "SUPTOALHABR" e "SUP-TOALHA-BR" são tratados como iguais
+const normSku = sku => sku.replace(/-/g, '').toUpperCase();
+
 // ── Navegação ──
 function switchTab(t) {
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
@@ -213,7 +217,7 @@ function mostrarPreview() {
   }
 
   pb.innerHTML = xmlItens.map(item => {
-    const idx  = produtos.findIndex(p => p.sku === item.sku);
+    const idx  = produtos.findIndex(p => normSku(p.sku) === normSku(item.sku));
     const vinc = idx >= 0
       ? `<span class="badge ok">&#10003; ${produtos[idx].nome} · ${produtos[idx].cor}</span>`
       : `<span class="badge low">&#9651; SKU não cadastrado</span>`;
@@ -235,7 +239,7 @@ function aplicarXML() {
   const resultados = [];
 
   xmlItens.forEach(item => {
-    const idx = produtos.findIndex(p => p.sku === item.sku);
+    const idx = produtos.findIndex(p => normSku(p.sku) === normSku(item.sku));
     if (idx >= 0) {
       const antes = produtos[idx].qtd;
       produtos[idx].qtd = Math.max(0, antes - item.qtd);
