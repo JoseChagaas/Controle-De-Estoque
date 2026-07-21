@@ -175,6 +175,21 @@
 
   </main>
 
+  <!-- Loading overlay -->
+  <div id="loading-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:999;align-items:center;justify-content:center;flex-direction:column;gap:12px;">
+    <div style="background:#fff;border-radius:12px;padding:1.5rem 2rem;display:flex;align-items:center;gap:12px;box-shadow:0 8px 32px rgba(0,0,0,0.18);">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#E84E4E" stroke-width="2.5" stroke-linecap="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/></path></svg>
+      <span id="loading-msg" style="font-size:14px;font-weight:500;color:#1c1c1a;">Carregando...</span>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" style="display:none;position:fixed;bottom:24px;right:24px;padding:10px 18px;border-radius:8px;font-size:14px;font-weight:500;z-index:1000;box-shadow:0 4px 16px rgba(0,0,0,0.15);"></div>
+  <style>
+    .toast.ok  { background:#3B6D11; color:#eaf3de; }
+    .toast.err { background:#A32D2D; color:#fcebeb; }
+  </style>
+
   <script src="data.js"></script>
   <script src="app.js"></script>
 </body>

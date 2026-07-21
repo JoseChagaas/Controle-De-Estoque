@@ -1,14 +1,29 @@
 // ── Estado global ──
-let produtos  = initProdutos();
-let historico = initHistorico();
+let produtos  = [];
+let historico = [];
 let xmlItens  = [];
 let xmlHoje   = parseInt(sessionStorage.getItem('xmlHoje') || '0');
 
 const hoje = () => new Date().toLocaleDateString('pt-BR');
-
-// Remove hífens e converte para maiúsculo — usado para comparar SKUs do XML com o cadastro
-// Ex: "SUPTOALHABR" e "SUP-TOALHA-BR" são tratados como iguais
 const normSku = sku => sku.replace(/-/g, '').toUpperCase();
+
+// ── Loading overlay ──
+function showLoading(msg = 'Carregando...') {
+  document.getElementById('loading-msg').textContent = msg;
+  document.getElementById('loading-overlay').style.display = 'flex';
+}
+function hideLoading() {
+  document.getElementById('loading-overlay').style.display = 'none';
+}
+
+// ── Toast ──
+function showToast(msg, tipo = 'ok') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = `toast ${tipo}`;
+  t.style.display = 'block';
+  setTimeout(() => { t.style.display = 'none'; }, 3500);
+}
 
 // ── Navegação ──
 function switchTab(t) {
@@ -18,7 +33,7 @@ function switchTab(t) {
   document.getElementById(`tab-${t}`).classList.add('active');
   if (t === 'dashboard') renderDash();
   if (t === 'estoque')   renderEstoque('');
-  if (t === 'historico') renderHistorico();
+  if (t === 'historico') carregarHistorico();
 }
 
 // ── Helpers visuais ──
@@ -29,8 +44,8 @@ function corCell(cor) {
 }
 
 function statusBadge(p) {
-  if (p.qtd === 0)      return '<span class="badge out">Zerado</span>';
-  if (p.qtd <= p.min)   return '<span class="badge low">Baixo</span>';
+  if (p.qtd === 0)    return '<span class="badge out">Zerado</span>';
+  if (p.qtd <= p.min) return '<span class="badge low">Baixo</span>';
   return '<span class="badge ok">OK</span>';
 }
 
@@ -53,7 +68,7 @@ function renderDash() {
       <td><code style="font-family:var(--mono);font-size:12px">${p.sku}</code></td>
       <td><strong>${p.qtd}</strong></td>
       <td>${statusBadge(p)}</td>
-    </tr>`).join('');
+    </tr>`).join('') || '<tr><td colspan="5" class="empty-state">Nenhum produto cadastrado</td></tr>';
 }
 
 // ── Estoque ──
@@ -66,7 +81,7 @@ function renderEstoque(filtro) {
   );
 
   document.getElementById('count-label').textContent =
-    `${lista.length} produto${lista.length !== 1 ? 's' : ''}${f ? ` encontrado${lista.length !== 1 ? 's' : ''}` : ''}`;
+    `${lista.length} produto${lista.length !== 1 ? 's' : ''}${f ? ' encontrado' + (lista.length !== 1 ? 's' : '') : ''}`;
 
   document.getElementById('est-table').innerHTML = lista.length
     ? lista.map(p => `
@@ -74,8 +89,8 @@ function renderEstoque(filtro) {
         <td>${produtoCell(p.nome, p.sku)}</td>
         <td>${corCell(p.cor)}</td>
         <td><code style="font-family:var(--mono);font-size:12px">${p.sku}</code></td>
-        <td><input type="number" value="${p.qtd}" min="0" style="width:64px" onchange="atualizarQtd('${p.sku}',this.value)"/></td>
-        <td><input type="number" value="${p.min}" min="1" style="width:56px" onchange="atualizarMin('${p.sku}',this.value)"/></td>
+        <td><input type="number" value="${p.qtd}" min="0" style="width:64px" onchange="atualizarQtd('${p.sku}', this.value)"/></td>
+        <td><input type="number" value="${p.min}" min="1" style="width:56px" onchange="atualizarMin('${p.sku}', this.value)"/></td>
         <td>${statusBadge(p)}</td>
         <td>
           <button class="btn icon-btn" onclick="removerProduto('${p.sku}')" title="Remover">
@@ -86,46 +101,75 @@ function renderEstoque(filtro) {
     : '<tr><td colspan="7" class="empty-state">Nenhum produto encontrado</td></tr>';
 }
 
-function atualizarQtd(sku, val) {
-  const idx = produtos.findIndex(p => p.sku === sku);
-  if (idx >= 0) { produtos[idx].qtd = Math.max(0, parseInt(val) || 0); salvarProdutos(produtos); }
+async function atualizarQtd(sku, val) {
+  const qtd = Math.max(0, parseInt(val) || 0);
+  const idx  = produtos.findIndex(p => p.sku === sku);
+  if (idx < 0) return;
+  produtos[idx].qtd = qtd;
+  try { await dbAtualizarQtd(sku, qtd); }
+  catch(e) { showToast('Erro ao salvar quantidade', 'err'); }
 }
 
-function atualizarMin(sku, val) {
-  const idx = produtos.findIndex(p => p.sku === sku);
-  if (idx >= 0) { produtos[idx].min = Math.max(1, parseInt(val) || 1); salvarProdutos(produtos); }
+async function atualizarMin(sku, val) {
+  const min = Math.max(1, parseInt(val) || 1);
+  const idx  = produtos.findIndex(p => p.sku === sku);
+  if (idx < 0) return;
+  produtos[idx].min = min;
+  try { await dbAtualizarMin(sku, min); }
+  catch(e) { showToast('Erro ao salvar alerta', 'err'); }
 }
 
-function removerProduto(sku) {
+async function removerProduto(sku) {
   if (!confirm(`Remover ${sku} do estoque?`)) return;
-  produtos = produtos.filter(p => p.sku !== sku);
-  salvarProdutos(produtos);
-  renderEstoque(document.querySelector('.search')?.value || '');
+  try {
+    showLoading('Removendo produto...');
+    await dbRemoverProduto(sku);
+    produtos = produtos.filter(p => p.sku !== sku);
+    renderEstoque(document.querySelector('.search')?.value || '');
+    showToast('Produto removido');
+  } catch(e) {
+    showToast('Erro ao remover produto', 'err');
+  } finally { hideLoading(); }
 }
 
-function adicionarProduto() {
+async function adicionarProduto() {
   const nome = document.getElementById('p-nome').value.trim();
   const sku  = document.getElementById('p-sku').value.trim().toUpperCase();
   const qtd  = parseInt(document.getElementById('p-qtd').value) || 0;
   const min  = parseInt(document.getElementById('p-min').value) || 5;
 
-  if (!nome || !sku) { alert('Preencha nome e SKU.'); return; }
+  if (!nome || !sku) { showToast('Preencha nome e SKU', 'err'); return; }
 
   const cor = sku.endsWith('-BR') ? 'Branco' : sku.endsWith('-PT') ? 'Preto' : '—';
-  const idx = produtos.findIndex(p => p.sku === sku);
 
-  if (idx >= 0) { produtos[idx] = { nome, sku, cor, qtd, min }; }
-  else          { produtos.push({ nome, sku, cor, qtd, min }); }
-
-  salvarProdutos(produtos);
-  document.getElementById('p-nome').value = '';
-  document.getElementById('p-sku').value  = '';
-  document.getElementById('p-qtd').value  = 0;
-  document.getElementById('p-min').value  = 5;
-  renderEstoque('');
+  try {
+    showLoading('Salvando produto...');
+    await dbUpsertProduto([{ nome, sku, cor, qtd, min }]);
+    const idx = produtos.findIndex(p => p.sku === sku);
+    if (idx >= 0) produtos[idx] = { ...produtos[idx], nome, sku, cor, qtd, min };
+    else          produtos.push({ nome, sku, cor, qtd, min });
+    document.getElementById('p-nome').value = '';
+    document.getElementById('p-sku').value  = '';
+    document.getElementById('p-qtd').value  = 0;
+    document.getElementById('p-min').value  = 5;
+    renderEstoque('');
+    showToast('Produto salvo com sucesso');
+  } catch(e) {
+    showToast('Erro ao salvar produto', 'err');
+  } finally { hideLoading(); }
 }
 
 // ── Histórico ──
+async function carregarHistorico() {
+  try {
+    showLoading('Carregando histórico...');
+    historico = await dbGetHistorico();
+    renderHistorico();
+  } catch(e) {
+    showToast('Erro ao carregar histórico', 'err');
+  } finally { hideLoading(); }
+}
+
 function renderHistorico() {
   const el = document.getElementById('historico-list');
   if (!historico.length) {
@@ -181,10 +225,9 @@ function parseXML(filename, content) {
     const doc    = parser.parseFromString(content, 'text/xml');
     const ns     = 'http://www.portalfiscal.inf.br/nfe';
 
-    const getNS = (parent, tag) => {
-      return parent.getElementsByTagNameNS(ns, tag)[0]
-          || parent.getElementsByTagName(tag)[0];
-    };
+    const getNS = (parent, tag) =>
+      parent.getElementsByTagNameNS(ns, tag)[0] ||
+      parent.getElementsByTagName(tag)[0];
 
     const infNFe = getNS(doc, 'infNFe');
     const ide    = infNFe ? getNS(infNFe, 'ide') : null;
@@ -204,7 +247,7 @@ function parseXML(filename, content) {
       const qCom  = parseFloat((getNS(prod, 'qCom') || { textContent: '0' }).textContent) || 0;
       if (cProd && qCom > 0) xmlItens.push({ nf: nNF || filename, sku: cProd, produto: xProd, qtd: Math.round(qCom) });
     });
-  } catch (e) {
+  } catch(e) {
     console.warn('Erro ao parsear XML:', filename, e);
   }
 }
@@ -212,7 +255,7 @@ function parseXML(filename, content) {
 function mostrarPreview() {
   const pb = document.getElementById('preview-body');
   if (!xmlItens.length) {
-    alert('Nenhum item encontrado nos XMLs. Verifique se são NF-e válidas.');
+    showToast('Nenhum item encontrado nos XMLs.', 'err');
     return;
   }
 
@@ -234,50 +277,69 @@ function mostrarPreview() {
   document.getElementById('result-box').style.display   = 'none';
 }
 
-function aplicarXML() {
+async function aplicarXML() {
   if (!xmlItens.length) return;
+
+  const atualizacoes = [];
+  const novosHistorico = [];
   const resultados = [];
 
   xmlItens.forEach(item => {
     const idx = produtos.findIndex(p => normSku(p.sku) === normSku(item.sku));
     if (idx >= 0) {
       const antes = produtos[idx].qtd;
-      produtos[idx].qtd = Math.max(0, antes - item.qtd);
-      historico.unshift({
-        nome: produtos[idx].nome,
-        cor:  produtos[idx].cor,
-        sku:  item.sku,
-        qtd:  item.qtd,
-        nf:   item.nf,
-        data: hoje()
-      });
-      resultados.push({ ok: true, msg: `${produtos[idx].nome} · ${produtos[idx].cor} (${item.sku}): ${antes} → ${produtos[idx].qtd} unid.` });
+      const nova  = Math.max(0, antes - item.qtd);
+      produtos[idx].qtd = nova;
+      atualizacoes.push({ sku: produtos[idx].sku, qtd: nova });
+      novosHistorico.push({ nome: produtos[idx].nome, cor: produtos[idx].cor, sku: produtos[idx].sku, qtd: item.qtd, nf: item.nf, data: hoje() });
+      resultados.push({ ok: true, msg: `${produtos[idx].nome} · ${produtos[idx].cor} (${produtos[idx].sku}): ${antes} → ${nova} unid.` });
     } else {
       resultados.push({ ok: false, msg: `${item.sku}: SKU não encontrado no estoque` });
     }
   });
 
-  xmlHoje += xmlItens.length;
-  sessionStorage.setItem('xmlHoje', xmlHoje);
-  salvarProdutos(produtos);
-  salvarHistorico(historico);
+  try {
+    showLoading('Atualizando estoque...');
+    await Promise.all(atualizacoes.map(a => dbAtualizarQtd(a.sku, a.qtd)));
+    if (novosHistorico.length) await dbInserirHistorico(novosHistorico);
 
-  document.getElementById('result-rows').innerHTML = resultados.map(r =>
-    `<div class="result-row"><span>${r.msg}</span><span class="${r.ok ? 'ok' : 'err'}">${r.ok ? 'Deduzido' : 'Ignorado'}</span></div>`
-  ).join('');
+    xmlHoje += xmlItens.length;
+    sessionStorage.setItem('xmlHoje', xmlHoje);
+    document.getElementById('m-xml').textContent = xmlHoje;
 
-  document.getElementById('preview-area').style.display = 'none';
-  document.getElementById('result-box').style.display   = 'block';
-  xmlItens = [];
+    document.getElementById('result-rows').innerHTML = resultados.map(r =>
+      `<div class="result-row"><span>${r.msg}</span><span class="${r.ok ? 'ok' : 'err'}">${r.ok ? 'Deduzido' : 'Ignorado'}</span></div>`
+    ).join('');
+
+    document.getElementById('preview-area').style.display = 'none';
+    document.getElementById('result-box').style.display   = 'block';
+    xmlItens = [];
+    renderDash();
+    showToast('Estoque atualizado com sucesso!');
+  } catch(e) {
+    showToast('Erro ao atualizar estoque no banco', 'err');
+  } finally { hideLoading(); }
 }
 
 function limparXML() {
   xmlItens = [];
-  document.getElementById('file-chips').innerHTML      = '';
+  document.getElementById('file-chips').innerHTML       = '';
   document.getElementById('preview-area').style.display = 'none';
   document.getElementById('result-box').style.display   = 'none';
   document.getElementById('xml-input').value = '';
 }
 
 // ── Init ──
-renderDash();
+async function init() {
+  try {
+    showLoading('Conectando ao banco de dados...');
+    await seedProdutosSeVazio();
+    produtos = await dbGetProdutos();
+    renderDash();
+  } catch(e) {
+    showToast('Erro ao conectar ao banco. Verifique sua conexão.', 'err');
+    console.error(e);
+  } finally { hideLoading(); }
+}
+
+init();

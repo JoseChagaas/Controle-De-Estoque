@@ -1,4 +1,76 @@
-// Catálogo de produtos — edite aqui para adicionar ou alterar produtos
+// ── Configuração Supabase ──
+const SUPABASE_URL = 'https://mhlgjyrzwsedvbxilitg.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1obGdqeXJ6d3NlZHZieGlsaXRnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ1ODU1NjgsImV4cCI6MjEwMDE2MTU2OH0.1gtqWU3LFVxCCIq9RwV3W1GSLxkrQn7aJphtTGg2N6Y';
+
+const HEADERS = {
+  'Content-Type': 'application/json',
+  'apikey': SUPABASE_KEY,
+  'Authorization': `Bearer ${SUPABASE_KEY}`,
+  'Prefer': 'return=representation'
+};
+
+const API = (tabela) => `${SUPABASE_URL}/rest/v1/${tabela}`;
+
+// ── Produtos ──
+async function dbGetProdutos() {
+  const res = await fetch(`${API('produtos')}?order=nome.asc`, { headers: HEADERS });
+  if (!res.ok) throw new Error('Erro ao buscar produtos');
+  return res.json();
+}
+
+async function dbUpsertProduto(produto) {
+  const res = await fetch(`${API('produtos')}?on_conflict=sku`, {
+    method: 'POST',
+    headers: { ...HEADERS, 'Prefer': 'resolution=merge-duplicates,return=representation' },
+    body: JSON.stringify(produto)
+  });
+  if (!res.ok) throw new Error('Erro ao salvar produto');
+  return res.json();
+}
+
+async function dbAtualizarQtd(sku, qtd) {
+  const res = await fetch(`${API('produtos')}?sku=eq.${encodeURIComponent(sku)}`, {
+    method: 'PATCH',
+    headers: HEADERS,
+    body: JSON.stringify({ qtd })
+  });
+  if (!res.ok) throw new Error('Erro ao atualizar quantidade');
+}
+
+async function dbAtualizarMin(sku, min) {
+  const res = await fetch(`${API('produtos')}?sku=eq.${encodeURIComponent(sku)}`, {
+    method: 'PATCH',
+    headers: HEADERS,
+    body: JSON.stringify({ min })
+  });
+  if (!res.ok) throw new Error('Erro ao atualizar mínimo');
+}
+
+async function dbRemoverProduto(sku) {
+  const res = await fetch(`${API('produtos')}?sku=eq.${encodeURIComponent(sku)}`, {
+    method: 'DELETE',
+    headers: HEADERS
+  });
+  if (!res.ok) throw new Error('Erro ao remover produto');
+}
+
+// ── Histórico ──
+async function dbGetHistorico() {
+  const res = await fetch(`${API('historico')}?order=criado_em.desc&limit=200`, { headers: HEADERS });
+  if (!res.ok) throw new Error('Erro ao buscar histórico');
+  return res.json();
+}
+
+async function dbInserirHistorico(registros) {
+  const res = await fetch(API('historico'), {
+    method: 'POST',
+    headers: HEADERS,
+    body: JSON.stringify(registros)
+  });
+  if (!res.ok) throw new Error('Erro ao inserir histórico');
+}
+
+// ── Catálogo inicial — usado apenas na primeira carga ──
 const CATALOG = [
   { nome: 'Trava de Porta',           skus: [{ sku: 'TRAVA-PT', cor: 'Preto' }, { sku: 'TRAVA-BR', cor: 'Branco' }] },
   { nome: 'Suporte Toalha',           skus: [{ sku: 'SUP-TOALHA-BR', cor: 'Branco' }, { sku: 'SUP-TOALHA-PT', cor: 'Preto' }] },
@@ -23,28 +95,12 @@ const CATALOG = [
   { nome: 'Suporte Esponja',          skus: [{ sku: 'SUP-ESPONJA-PT', cor: 'Preto' }, { sku: 'SUP-ESPONJA-BR', cor: 'Branco' }] },
 ];
 
-// Inicializa lista de produtos a partir do catálogo
-function initProdutos() {
-  const saved = localStorage.getItem('shopee_produtos');
-  if (saved) return JSON.parse(saved);
+async function seedProdutosSeVazio() {
+  const existentes = await dbGetProdutos();
+  if (existentes.length > 0) return;
   const lista = [];
   CATALOG.forEach(cat => {
-    cat.skus.forEach(s => {
-      lista.push({ sku: s.sku, nome: cat.nome, cor: s.cor, qtd: 0, min: 5 });
-    });
+    cat.skus.forEach(s => lista.push({ sku: s.sku, nome: cat.nome, cor: s.cor, qtd: 0, min: 5 }));
   });
-  return lista;
-}
-
-function initHistorico() {
-  const saved = localStorage.getItem('shopee_historico');
-  return saved ? JSON.parse(saved) : [];
-}
-
-function salvarProdutos(lista) {
-  localStorage.setItem('shopee_produtos', JSON.stringify(lista));
-}
-
-function salvarHistorico(lista) {
-  localStorage.setItem('shopee_historico', JSON.stringify(lista));
+  await dbUpsertProduto(lista);
 }
