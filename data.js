@@ -61,6 +61,16 @@ async function dbGetHistorico() {
   return res.json();
 }
 
+// Recebe uma lista de números de NF e retorna quais já existem no histórico
+async function dbGetNFsJaImportadas(listaNFs) {
+  if (!listaNFs.length) return [];
+  const filtro = listaNFs.map(nf => `nf.eq.${encodeURIComponent(nf)}`).join(',');
+  const res = await fetch(`${API('historico')}?select=nf&or=(${filtro})`, { headers: HEADERS });
+  if (!res.ok) throw new Error('Erro ao verificar NFs duplicadas');
+  const data = await res.json();
+  return [...new Set(data.map(r => r.nf))];
+}
+
 async function dbInserirHistorico(registros) {
   const res = await fetch(API('historico'), {
     method: 'POST',

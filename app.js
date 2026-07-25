@@ -280,43 +280,107 @@ function mostrarPreview() {
 async function aplicarXML() {
   if (!xmlItens.length) return;
 
-  const atualizacoes = [];
-  const novosHistorico = [];
-  const resultados = [];
-
-  xmlItens.forEach(item => {
-    const idx = produtos.findIndex(p => normSku(p.sku) === normSku(item.sku));
-    if (idx >= 0) {
-      const antes = produtos[idx].qtd;
-      const nova  = Math.max(0, antes - item.qtd);
-      produtos[idx].qtd = nova;
-      atualizacoes.push({ sku: produtos[idx].sku, qtd: nova });
-      novosHistorico.push({ nome: produtos[idx].nome, cor: produtos[idx].cor, sku: produtos[idx].sku, qtd: item.qtd, nf: item.nf, data: hoje() });
-      resultados.push({ ok: true, msg: `${produtos[idx].nome} · ${produtos[idx].cor} (${produtos[idx].sku}): ${antes} → ${nova} unid.` });
-    } else {
-      resultados.push({ ok: false, msg: `${item.sku}: SKU não encontrado no estoque` });
-    }
-  });
-
   try {
+    showLoading('Verificando NFs já importadas...');
+
+    // 1. Busca no banco todas as NFs que já foram importadas
+    const nfsNoLote = [...new Set(xmlItens.map(i => i.nf))];
+    const nfsJaImportadas = await dbGetNFsJaImportadas(nfsNoLote);
+
+    // 2. Separa itens novos dos duplicados
+    const itensDuplicados = xmlItens.filter(i => nfsJaImportadas.includes(i.nf));
+    const itensNovos      = xmlItens.filter(i => !nfsJaImportadas.includes(i.nf));
+
+    const resultados = [];
+
+    // 3. Registra os duplicados como ignorados no resultado
+    itensDuplicados.forEach(item => {
+      resultados.push({
+        ok: false,
+        duplicada: true,
+        msg: `NF ${item.nf} (${item.sku}): já foi importada anteriormente — ignorada`
+      });
+    });
+
+    if (!itensNovos.length) {
+      // Todos os itens já foram importados antes
+      document.getElementById('result-rows').innerHTML = resultados.map(r =>
+        `<div class="result-row">
+          <span>${r.msg}</span>
+          <span class="err">Duplicada</span>
+        </div>`
+      ).join('');
+      document.getElementById('preview-area').style.display = 'none';
+      document.getElementById('result-box').style.display   = 'block';
+      xmlItens = [];
+      showToast('Todas as NFs deste lote já foram importadas anteriormente.', 'err');
+      return;
+    }
+
+    // 4. Agrupa deduções por SKU — soma todas as qtds do mesmo SKU no lote
+    //    Isso garante que múltiplas NFs do mesmo SKU sejam somadas ANTES
+    //    de subtrair do estoque, evitando dedução errada por leitura antiga
+    const deducoesPorSku = {};
+    itensNovos.forEach(item => {
+      const idx = produtos.findIndex(p => normSku(p.sku) === normSku(item.sku));
+      if (idx >= 0) {
+        const skuReal = produtos[idx].sku;
+        if (!deducoesPorSku[skuReal]) deducoesPorSku[skuReal] = { total: 0, produto: produtos[idx] };
+        deducoesPorSku[skuReal].total += item.qtd;
+        resultados.push({ ok: true, nf: item.nf, sku: skuReal, nome: produtos[idx].nome, cor: produtos[idx].cor, qtdDeduzida: item.qtd });
+      } else {
+        resultados.push({ ok: false, msg: `${item.sku}: SKU não encontrado no estoque` });
+      }
+    });
+
+    // 5. Calcula o novo estoque para cada SKU e atualiza o array em memória
+    //    A quantidade base é sempre a do banco (produtos[idx].qtd) — nunca
+    //    um valor intermediário — e a dedução total do lote é aplicada de uma vez
     showLoading('Atualizando estoque...');
+    const atualizacoes = [];
+    Object.entries(deducoesPorSku).forEach(([sku, { total, produto }]) => {
+      const idx   = produtos.findIndex(p => p.sku === sku);
+      const antes = produtos[idx].qtd;
+      const nova  = Math.max(0, antes - total);
+      produtos[idx].qtd = nova; // atualiza em memória
+      atualizacoes.push({ sku, qtd: nova });
+    });
+
+    // 6. Monta registros de histórico apenas para itens novos
+    const novosHistorico = itensNovos
+      .filter(item => produtos.findIndex(p => normSku(p.sku) === normSku(item.sku)) >= 0)
+      .map(item => {
+        const p = produtos.find(p => normSku(p.sku) === normSku(item.sku));
+        return { nome: p.nome, cor: p.cor, sku: p.sku, qtd: item.qtd, nf: item.nf, data: hoje() };
+      });
+
+    // 7. Persiste tudo no banco em paralelo
     await Promise.all(atualizacoes.map(a => dbAtualizarQtd(a.sku, a.qtd)));
     if (novosHistorico.length) await dbInserirHistorico(novosHistorico);
 
-    xmlHoje += xmlItens.length;
+    // 8. Exibe resultado detalhado
+    const linhasResultado = resultados.map(r => {
+      if (r.duplicada) return `<div class="result-row warn"><span>⚠ ${r.msg}</span><span style="color:var(--amber);font-size:12px">Duplicada</span></div>`;
+      if (!r.ok)       return `<div class="result-row"><span>${r.msg}</span><span class="err">Ignorado</span></div>`;
+      return `<div class="result-row"><span>${r.nome} · ${r.cor} (${r.sku}) — NF ${r.nf}: −${r.qtdDeduzida} unid.</span><span class="ok">Deduzido</span></div>`;
+    }).join('');
+
+    xmlHoje += itensNovos.length;
     sessionStorage.setItem('xmlHoje', xmlHoje);
     document.getElementById('m-xml').textContent = xmlHoje;
-
-    document.getElementById('result-rows').innerHTML = resultados.map(r =>
-      `<div class="result-row"><span>${r.msg}</span><span class="${r.ok ? 'ok' : 'err'}">${r.ok ? 'Deduzido' : 'Ignorado'}</span></div>`
-    ).join('');
-
+    document.getElementById('result-rows').innerHTML = linhasResultado;
     document.getElementById('preview-area').style.display = 'none';
     document.getElementById('result-box').style.display   = 'block';
     xmlItens = [];
     renderDash();
-    showToast('Estoque atualizado com sucesso!');
+
+    const msg = itensDuplicados.length
+      ? `Estoque atualizado. ${itensDuplicados.length} NF(s) duplicada(s) ignorada(s).`
+      : 'Estoque atualizado com sucesso!';
+    showToast(msg, itensDuplicados.length ? 'err' : 'ok');
+
   } catch(e) {
+    console.error(e);
     showToast('Erro ao atualizar estoque no banco', 'err');
   } finally { hideLoading(); }
 }
