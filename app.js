@@ -28,9 +28,14 @@ function showToast(msg, tipo = 'ok') {
 
 // ── Navegação ──
 function switchTab(t) {
+  // Sidebar (desktop)
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  document.querySelector(`.nav-item[data-tab="${t}"]`)?.classList.add('active');
+  // Nav mobile
+  document.querySelectorAll('.mobile-nav button').forEach(el => el.classList.remove('active'));
+  document.querySelector(`.mobile-nav button[data-tab="${t}"]`)?.classList.add('active');
+  // Seções
   document.querySelectorAll('.tab-section').forEach(el => el.classList.remove('active'));
-  document.querySelector(`[data-tab="${t}"]`).classList.add('active');
   document.getElementById(`tab-${t}`).classList.add('active');
   if (t === 'dashboard') renderDash();
   if (t === 'estoque')   renderEstoque('');
