@@ -2,10 +2,11 @@
 let produtos  = [];
 let historico = [];
 let xmlItens  = [];
-let xmlHoje   = parseInt(sessionStorage.getItem('xmlHoje') || '0');
+let filtroCor = 'todos';
 
 const hoje = () => new Date().toLocaleDateString('pt-BR');
 const normSku = sku => sku.replace(/-/g, '').toUpperCase();
+const brl = v => Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 // ── Loading overlay ──
 function showLoading(msg = 'Carregando...') {
@@ -54,69 +55,120 @@ function produtoCell(nome, sku) {
 }
 
 // ── Dashboard ──
+function setFiltroCor(cor) {
+  filtroCor = cor;
+  document.querySelectorAll('.cor-btn').forEach(b => b.classList.toggle('active', b.dataset.cor === cor));
+  renderDash();
+}
+
 function renderDash() {
   const low = produtos.filter(p => p.qtd <= p.min).length;
   document.getElementById('m-total').textContent = produtos.length;
   document.getElementById('m-low').textContent   = low;
-  document.getElementById('m-xml').textContent   = xmlHoje;
   document.getElementById('alert-low').style.display = low > 0 ? 'flex' : 'none';
 
-  document.getElementById('dash-table').innerHTML = produtos.map(p => `
+  // Ordena: produtos com estoque > 0 primeiro (alfabético), depois zerados (alfabético)
+  const ordenados = [...produtos]
+    .filter(p => filtroCor === 'todos' || p.cor === filtroCor)
+    .sort((a, b) => {
+      if (a.qtd > 0 && b.qtd === 0) return -1;
+      if (a.qtd === 0 && b.qtd > 0) return 1;
+      return a.nome.localeCompare(b.nome, 'pt-BR');
+    });
+
+  document.getElementById('dash-table').innerHTML = ordenados.map(p => `
     <tr>
       <td>${produtoCell(p.nome, p.sku)}</td>
       <td>${corCell(p.cor)}</td>
-      <td><code style="font-family:var(--mono);font-size:12px">${p.sku}</code></td>
       <td><strong>${p.qtd}</strong></td>
       <td>${statusBadge(p)}</td>
-    </tr>`).join('') || '<tr><td colspan="5" class="empty-state">Nenhum produto cadastrado</td></tr>';
+    </tr>`).join('') || '<tr><td colspan="4" class="empty-state">Nenhum produto encontrado</td></tr>';
 }
 
 // ── Estoque ──
+// Guarda edições pendentes: { sku -> { qtd?, min? } }
+const edicoesPendentes = {};
+
 function renderEstoque(filtro) {
   const f = (filtro || '').toLowerCase();
-  const lista = produtos.filter(p =>
-    p.sku.toLowerCase().includes(f) ||
-    p.nome.toLowerCase().includes(f) ||
-    p.cor.toLowerCase().includes(f)
-  );
+  const lista = [...produtos]
+    .filter(p =>
+      p.sku.toLowerCase().includes(f) ||
+      p.nome.toLowerCase().includes(f) ||
+      p.cor.toLowerCase().includes(f)
+    )
+    .sort((a, b) => {
+      if (a.qtd > 0 && b.qtd === 0) return -1;
+      if (a.qtd === 0 && b.qtd > 0) return 1;
+      return a.nome.localeCompare(b.nome, 'pt-BR');
+    });
 
   document.getElementById('count-label').textContent =
     `${lista.length} produto${lista.length !== 1 ? 's' : ''}${f ? ' encontrado' + (lista.length !== 1 ? 's' : '') : ''}`;
 
   document.getElementById('est-table').innerHTML = lista.length
     ? lista.map(p => `
-      <tr>
+      <tr id="row-${p.sku.replace(/[^a-zA-Z0-9]/g,'-')}">
         <td>${produtoCell(p.nome, p.sku)}</td>
         <td>${corCell(p.cor)}</td>
-        <td><code style="font-family:var(--mono);font-size:12px">${p.sku}</code></td>
-        <td><input type="number" value="${p.qtd}" min="0" style="width:64px" onchange="atualizarQtd('${p.sku}', this.value)"/></td>
-        <td><input type="number" value="${p.min}" min="1" style="width:56px" onchange="atualizarMin('${p.sku}', this.value)"/></td>
+        <td>
+          <input type="number" value="${p.qtd}" min="0" style="width:64px"
+            oninput="marcarPendente('${p.sku}', 'qtd', this.value, this)"/>
+        </td>
+        <td>
+          <input type="number" value="${p.min}" min="1" style="width:56px"
+            oninput="marcarPendente('${p.sku}', 'min', this.value, this)"/>
+        </td>
         <td>${statusBadge(p)}</td>
+        <td>
+          <button class="btn-confirmar" id="confirmar-${p.sku.replace(/[^a-zA-Z0-9]/g,'-')}"
+            style="display:none" onclick="confirmarEdicao('${p.sku}')" title="Confirmar">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            Salvar
+          </button>
+        </td>
         <td>
           <button class="btn icon-btn" onclick="removerProduto('${p.sku}')" title="Remover">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
           </button>
         </td>
       </tr>`).join('')
-    : '<tr><td colspan="7" class="empty-state">Nenhum produto encontrado</td></tr>';
+    : '<tr><td colspan="8" class="empty-state">Nenhum produto encontrado</td></tr>';
 }
 
-async function atualizarQtd(sku, val) {
-  const qtd = Math.max(0, parseInt(val) || 0);
-  const idx  = produtos.findIndex(p => p.sku === sku);
-  if (idx < 0) return;
-  produtos[idx].qtd = qtd;
-  try { await dbAtualizarQtd(sku, qtd); }
-  catch(e) { showToast('Erro ao salvar quantidade', 'err'); }
+function marcarPendente(sku, campo, valor, input) {
+  if (!edicoesPendentes[sku]) edicoesPendentes[sku] = {};
+  edicoesPendentes[sku][campo] = valor;
+  const btnId = 'confirmar-' + sku.replace(/[^a-zA-Z0-9]/g, '-');
+  const btn = document.getElementById(btnId);
+  if (btn) btn.style.display = 'inline-flex';
+  input.classList.add('input-pendente');
 }
 
-async function atualizarMin(sku, val) {
-  const min = Math.max(1, parseInt(val) || 1);
-  const idx  = produtos.findIndex(p => p.sku === sku);
+async function confirmarEdicao(sku) {
+  const edits = edicoesPendentes[sku];
+  if (!edits) return;
+  const idx = produtos.findIndex(p => p.sku === sku);
   if (idx < 0) return;
-  produtos[idx].min = min;
-  try { await dbAtualizarMin(sku, min); }
-  catch(e) { showToast('Erro ao salvar alerta', 'err'); }
+
+  try {
+    showLoading('Salvando...');
+    if (edits.qtd !== undefined) {
+      const qtd = Math.max(0, parseInt(edits.qtd) || 0);
+      produtos[idx].qtd = qtd;
+      await dbAtualizarQtd(sku, qtd);
+    }
+    if (edits.min !== undefined) {
+      const min = Math.max(1, parseInt(edits.min) || 1);
+      produtos[idx].min = min;
+      await dbAtualizarMin(sku, min);
+    }
+    delete edicoesPendentes[sku];
+    renderEstoque(document.querySelector('.search')?.value || '');
+    showToast('Alteração salva');
+  } catch(e) {
+    showToast('Erro ao salvar alteração', 'err');
+  } finally { hideLoading(); }
 }
 
 async function removerProduto(sku) {
@@ -176,14 +228,39 @@ function renderHistorico() {
     el.innerHTML = '<p class="empty-state">Sem movimentações registradas</p>';
     return;
   }
-  el.innerHTML = historico.map(h => `
-    <div class="history-item">
-      <div>
-        <div class="nome-produto">${h.nome} <span style="font-weight:400;color:var(--text-3)">· ${h.cor}</span> &mdash; ${h.qtd} unid.</div>
-        <div class="history-meta">${h.sku} &nbsp;·&nbsp; NF: ${h.nf} &nbsp;·&nbsp; ${h.data}</div>
-      </div>
-      <span class="badge out">Saída</span>
-    </div>`).join('');
+
+  // Agrupa por data de importação (campo data) e número de NF
+  const porData = {};
+  historico.forEach(h => {
+    if (!porData[h.data]) porData[h.data] = {};
+    if (!porData[h.data][h.nf]) porData[h.data][h.nf] = { itens: [], totalPecas: 0, totalValor: 0 };
+    porData[h.data][h.nf].itens.push(h);
+    porData[h.data][h.nf].totalPecas += h.qtd;
+    porData[h.data][h.nf].totalValor += parseFloat(h.valor || 0);
+  });
+
+  let html = '';
+  Object.entries(porData).forEach(([data, nfs]) => {
+    const totalNFs    = Object.keys(nfs).length;
+    const totalPecas  = Object.values(nfs).reduce((s, n) => s + n.totalPecas, 0);
+    const totalValor  = Object.values(nfs).reduce((s, n) => s + n.totalValor, 0);
+
+    html += `
+      <div class="hist-dia">
+        <div class="hist-dia-header">
+          <div>
+            <span class="hist-data">${data}</span>
+          </div>
+          <div class="hist-dia-stats">
+            <span class="hist-stat"><strong>${totalNFs}</strong> NF${totalNFs !== 1 ? 's' : ''}</span>
+            <span class="hist-stat"><strong>${totalPecas}</strong> peça${totalPecas !== 1 ? 's' : ''}</span>
+            ${totalValor > 0 ? `<span class="hist-stat valor"><strong>${brl(totalValor)}</strong></span>` : ''}
+          </div>
+        </div>
+      </div>`;
+  });
+
+  el.innerHTML = html;
 }
 
 // ── Importar XML ──
@@ -240,12 +317,13 @@ function parseXML(filename, content) {
     );
 
     dets.forEach(det => {
-      const prod  = getNS(det, 'prod');
+      const prod   = getNS(det, 'prod');
       if (!prod) return;
-      const cProd = (getNS(prod, 'cProd') || { textContent: '' }).textContent.trim().toUpperCase();
-      const xProd = (getNS(prod, 'xProd') || { textContent: '—' }).textContent.trim();
-      const qCom  = parseFloat((getNS(prod, 'qCom') || { textContent: '0' }).textContent) || 0;
-      if (cProd && qCom > 0) xmlItens.push({ nf: nNF || filename, sku: cProd, produto: xProd, qtd: Math.round(qCom) });
+      const cProd  = (getNS(prod, 'cProd')  || { textContent: '' }).textContent.trim().toUpperCase();
+      const xProd  = (getNS(prod, 'xProd')  || { textContent: '—' }).textContent.trim();
+      const qCom   = parseFloat((getNS(prod, 'qCom')  || { textContent: '0' }).textContent) || 0;
+      const vProd  = parseFloat((getNS(prod, 'vProd') || { textContent: '0' }).textContent) || 0;
+      if (cProd && qCom > 0) xmlItens.push({ nf: nNF || filename, sku: cProd, produto: xProd, qtd: Math.round(qCom), valor: vProd });
     });
   } catch(e) {
     console.warn('Erro ao parsear XML:', filename, e);
@@ -269,6 +347,7 @@ function mostrarPreview() {
         <td style="font-size:12px;color:var(--text-3)">${item.nf}</td>
         <td>${produtoCell(item.sku, item.produto)}</td>
         <td>${item.qtd}</td>
+        <td>${brl(item.valor)}</td>
         <td>${vinc}</td>
       </tr>`;
   }).join('');
@@ -283,32 +362,21 @@ async function aplicarXML() {
   try {
     showLoading('Verificando NFs já importadas...');
 
-    // 1. Busca no banco todas as NFs que já foram importadas
-    const nfsNoLote = [...new Set(xmlItens.map(i => i.nf))];
+    const nfsNoLote       = [...new Set(xmlItens.map(i => i.nf))];
     const nfsJaImportadas = await dbGetNFsJaImportadas(nfsNoLote);
 
-    // 2. Separa itens novos dos duplicados
-    const itensDuplicados = xmlItens.filter(i => nfsJaImportadas.includes(i.nf));
+    const itensDuplicados = xmlItens.filter(i =>  nfsJaImportadas.includes(i.nf));
     const itensNovos      = xmlItens.filter(i => !nfsJaImportadas.includes(i.nf));
 
     const resultados = [];
 
-    // 3. Registra os duplicados como ignorados no resultado
     itensDuplicados.forEach(item => {
-      resultados.push({
-        ok: false,
-        duplicada: true,
-        msg: `NF ${item.nf} (${item.sku}): já foi importada anteriormente — ignorada`
-      });
+      resultados.push({ ok: false, duplicada: true, msg: `NF ${item.nf} (${item.sku}): já importada — ignorada` });
     });
 
     if (!itensNovos.length) {
-      // Todos os itens já foram importados antes
       document.getElementById('result-rows').innerHTML = resultados.map(r =>
-        `<div class="result-row">
-          <span>${r.msg}</span>
-          <span class="err">Duplicada</span>
-        </div>`
+        `<div class="result-row"><span>${r.msg}</span><span class="err">Duplicada</span></div>`
       ).join('');
       document.getElementById('preview-area').style.display = 'none';
       document.getElementById('result-box').style.display   = 'block';
@@ -317,9 +385,6 @@ async function aplicarXML() {
       return;
     }
 
-    // 4. Agrupa deduções por SKU — soma todas as qtds do mesmo SKU no lote
-    //    Isso garante que múltiplas NFs do mesmo SKU sejam somadas ANTES
-    //    de subtrair do estoque, evitando dedução errada por leitura antiga
     const deducoesPorSku = {};
     itensNovos.forEach(item => {
       const idx = produtos.findIndex(p => normSku(p.sku) === normSku(item.sku));
@@ -333,41 +398,31 @@ async function aplicarXML() {
       }
     });
 
-    // 5. Calcula o novo estoque para cada SKU e atualiza o array em memória
-    //    A quantidade base é sempre a do banco (produtos[idx].qtd) — nunca
-    //    um valor intermediário — e a dedução total do lote é aplicada de uma vez
     showLoading('Atualizando estoque...');
     const atualizacoes = [];
-    Object.entries(deducoesPorSku).forEach(([sku, { total, produto }]) => {
-      const idx   = produtos.findIndex(p => p.sku === sku);
-      const antes = produtos[idx].qtd;
-      const nova  = Math.max(0, antes - total);
-      produtos[idx].qtd = nova; // atualiza em memória
+    Object.entries(deducoesPorSku).forEach(([sku, { total }]) => {
+      const idx  = produtos.findIndex(p => p.sku === sku);
+      const nova = Math.max(0, produtos[idx].qtd - total);
+      produtos[idx].qtd = nova;
       atualizacoes.push({ sku, qtd: nova });
     });
 
-    // 6. Monta registros de histórico apenas para itens novos
     const novosHistorico = itensNovos
       .filter(item => produtos.findIndex(p => normSku(p.sku) === normSku(item.sku)) >= 0)
       .map(item => {
         const p = produtos.find(p => normSku(p.sku) === normSku(item.sku));
-        return { nome: p.nome, cor: p.cor, sku: p.sku, qtd: item.qtd, nf: item.nf, data: hoje() };
+        return { nome: p.nome, cor: p.cor, sku: p.sku, qtd: item.qtd, nf: item.nf, data: hoje(), valor: item.valor };
       });
 
-    // 7. Persiste tudo no banco em paralelo
     await Promise.all(atualizacoes.map(a => dbAtualizarQtd(a.sku, a.qtd)));
     if (novosHistorico.length) await dbInserirHistorico(novosHistorico);
 
-    // 8. Exibe resultado detalhado
     const linhasResultado = resultados.map(r => {
       if (r.duplicada) return `<div class="result-row warn"><span>⚠ ${r.msg}</span><span style="color:var(--amber);font-size:12px">Duplicada</span></div>`;
       if (!r.ok)       return `<div class="result-row"><span>${r.msg}</span><span class="err">Ignorado</span></div>`;
       return `<div class="result-row"><span>${r.nome} · ${r.cor} (${r.sku}) — NF ${r.nf}: −${r.qtdDeduzida} unid.</span><span class="ok">Deduzido</span></div>`;
     }).join('');
 
-    xmlHoje += itensNovos.length;
-    sessionStorage.setItem('xmlHoje', xmlHoje);
-    document.getElementById('m-xml').textContent = xmlHoje;
     document.getElementById('result-rows').innerHTML = linhasResultado;
     document.getElementById('preview-area').style.display = 'none';
     document.getElementById('result-box').style.display   = 'block';
