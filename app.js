@@ -1,14 +1,16 @@
 // ── Estado global ──
-let produtos  = [];
-let historico = [];
-let xmlItens  = [];
-let filtroCor = 'todos';
+let produtos    = [];
+let historico   = [];
+let filtroCor   = 'todos';
+let filtroBusca = '';
+let notificacoes = JSON.parse(localStorage.getItem('hl_notif') || '[]');
+let sidebarCollapsed = false;
 
-const hoje = () => new Date().toLocaleDateString('pt-BR');
 const normSku = sku => sku.replace(/-/g, '').toUpperCase();
-const brl = v => Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const brl     = v   => Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const hoje    = ()  => new Date().toLocaleDateString('pt-BR');
 
-// ── Loading overlay ──
+// ── Loading ──
 function showLoading(msg = 'Carregando...') {
   document.getElementById('loading-msg').textContent = msg;
   document.getElementById('loading-overlay').style.display = 'flex';
@@ -26,20 +28,44 @@ function showToast(msg, tipo = 'ok') {
   setTimeout(() => { t.style.display = 'none'; }, 3500);
 }
 
+// ── Sidebar collapse ──
+function toggleSidebar() {
+  sidebarCollapsed = !sidebarCollapsed;
+  const sb   = document.getElementById('sidebar');
+  const main = document.getElementById('main');
+  const icon = document.getElementById('collapse-icon');
+  if (sidebarCollapsed) {
+    sb.classList.add('collapsed');
+    main.classList.add('collapsed');
+    icon.innerHTML = '<polyline points="9 18 15 12 9 6"/>';
+  } else {
+    sb.classList.remove('collapsed');
+    main.classList.remove('collapsed');
+    icon.innerHTML = '<polyline points="15 18 9 12 15 6"/>';
+  }
+}
+
+// ── Data ──
+function setDataHoje() {
+  const el = document.getElementById('data-hoje');
+  if (el) {
+    const d = new Date();
+    el.textContent = d.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
+  }
+}
+
 // ── Navegação ──
 function switchTab(t) {
-  // Sidebar (desktop)
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   document.querySelector(`.nav-item[data-tab="${t}"]`)?.classList.add('active');
-  // Nav mobile
   document.querySelectorAll('.mobile-nav button').forEach(el => el.classList.remove('active'));
   document.querySelector(`.mobile-nav button[data-tab="${t}"]`)?.classList.add('active');
-  // Seções
   document.querySelectorAll('.tab-section').forEach(el => el.classList.remove('active'));
   document.getElementById(`tab-${t}`).classList.add('active');
-  if (t === 'dashboard') renderDash();
-  if (t === 'estoque')   renderEstoque('');
-  if (t === 'historico') carregarHistorico();
+  if (t === 'dashboard')    renderDash();
+  if (t === 'estoque')      renderEstoque('');
+  if (t === 'vendas')       renderVendas();
+  if (t === 'notificacoes') renderNotificacoes();
 }
 
 // ── Helpers visuais ──
@@ -51,12 +77,22 @@ function corCell(cor) {
 
 function statusBadge(p) {
   if (p.qtd === 0)    return '<span class="badge out">Zerado</span>';
-  if (p.qtd <= p.min) return '<span class="badge low">Baixo</span>';
-  return '<span class="badge ok">OK</span>';
+  if (p.qtd <= p.min) return '<span class="badge low">⚠ Baixo</span>';
+  return '<span class="badge ok">✓ OK</span>';
 }
 
 function produtoCell(nome, sku) {
   return `<div class="nome-produto">${nome}</div><div class="sku-code">${sku}</div>`;
+}
+
+function tempoRelativo(dataStr) {
+  try {
+    const diff = Math.floor((new Date() - new Date(dataStr)) / 1000);
+    if (diff < 60)    return 'agora';
+    if (diff < 3600)  return `${Math.floor(diff/60)}m atrás`;
+    if (diff < 86400) return `${Math.floor(diff/3600)}h atrás`;
+    return `${Math.floor(diff/86400)}d atrás`;
+  } catch { return ''; }
 }
 
 // ── Dashboard ──
@@ -66,86 +102,96 @@ function setFiltroCor(cor) {
   renderDash();
 }
 
+function setFiltroBusca(v) {
+  filtroBusca = v;
+  renderDash();
+}
+
+async function carregarMetricasHoje() {
+  try {
+    const dados = await dbGetHistoricoHoje();
+    const vendas = dados.filter(h => h.qtd > 0 && isWebhook(h));
+    const nfs    = [...new Set(vendas.map(h => h.nf))];
+    const valor  = vendas.reduce((s, h) => s + parseFloat(h.valor || 0), 0);
+    document.getElementById('m-faturamento').textContent = brl(valor);
+    document.getElementById('m-vendas-hoje').textContent = `${nfs.length} pedido${nfs.length !== 1 ? 's' : ''}`;
+    document.getElementById('m-fat-sub').textContent  = `— ${nfs.length > 0 ? '+' : ''}${nfs.length} hoje`;
+    document.getElementById('m-vend-sub').textContent = `— ${nfs.length > 0 ? 'atualizado' : 'sem vendas'}`;
+  } catch {
+    document.getElementById('m-faturamento').textContent = 'R$ 0,00';
+    document.getElementById('m-vendas-hoje').textContent = '0 pedidos';
+  }
+}
+
 function renderDash() {
   const low = produtos.filter(p => p.qtd <= p.min).length;
   document.getElementById('m-total').textContent = produtos.length;
   document.getElementById('m-low').textContent   = low;
   document.getElementById('alert-low').style.display = low > 0 ? 'flex' : 'none';
 
-  // Ordena: produtos com estoque > 0 primeiro (alfabético), depois zerados (alfabético)
-  const ordenados = [...produtos]
-    .filter(p => filtroCor === 'todos' || p.cor === filtroCor)
-    .sort((a, b) => {
-      if (a.qtd > 0 && b.qtd === 0) return -1;
-      if (a.qtd === 0 && b.qtd > 0) return 1;
-      return a.nome.localeCompare(b.nome, 'pt-BR');
-    });
+  const f = filtroBusca.toLowerCase();
+  const lista = [...produtos]
+    .filter(p => {
+      const corOk   = filtroCor === 'todos' || p.cor === filtroCor;
+      const buscaOk = !f || p.nome.toLowerCase().includes(f) || p.sku.toLowerCase().includes(f);
+      return corOk && buscaOk;
+    })
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 
-  document.getElementById('dash-table').innerHTML = ordenados.map(p => `
-    <tr>
-      <td>${produtoCell(p.nome, p.sku)}</td>
-      <td>${corCell(p.cor)}</td>
-      <td><strong>${p.qtd}</strong></td>
-      <td>${statusBadge(p)}</td>
-    </tr>`).join('') || '<tr><td colspan="4" class="empty-state">Nenhum produto encontrado</td></tr>';
+  document.getElementById('dash-table').innerHTML = lista.length
+    ? lista.map(p => `
+      <tr>
+        <td>${produtoCell(p.nome, p.sku)}</td>
+        <td>${corCell(p.cor)}</td>
+        <td style="font-weight:600;color:${p.qtd === 0 ? 'var(--red)' : p.qtd <= p.min ? 'var(--amber)' : 'var(--text)'}">${p.qtd}</td>
+        <td>${statusBadge(p)}</td>
+        <td class="chevron-cell"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></td>
+      </tr>`).join('')
+    : '<tr><td colspan="5" class="empty-state">Nenhum produto encontrado</td></tr>';
 }
 
 // ── Estoque ──
-// Guarda edições pendentes: { sku -> { qtd?, min? } }
 const edicoesPendentes = {};
 
 function renderEstoque(filtro) {
   const f = (filtro || '').toLowerCase();
   const lista = [...produtos]
-    .filter(p =>
-      p.sku.toLowerCase().includes(f) ||
-      p.nome.toLowerCase().includes(f) ||
-      p.cor.toLowerCase().includes(f)
-    )
-    .sort((a, b) => {
-      if (a.qtd > 0 && b.qtd === 0) return -1;
-      if (a.qtd === 0 && b.qtd > 0) return 1;
-      return a.nome.localeCompare(b.nome, 'pt-BR');
-    });
+    .filter(p => p.sku.toLowerCase().includes(f) || p.nome.toLowerCase().includes(f) || p.cor.toLowerCase().includes(f))
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 
   document.getElementById('count-label').textContent =
     `${lista.length} produto${lista.length !== 1 ? 's' : ''}${f ? ' encontrado' + (lista.length !== 1 ? 's' : '') : ''}`;
 
   document.getElementById('est-table').innerHTML = lista.length
-    ? lista.map(p => `
-      <tr id="row-${p.sku.replace(/[^a-zA-Z0-9]/g,'-')}">
-        <td>${produtoCell(p.nome, p.sku)}</td>
-        <td>${corCell(p.cor)}</td>
-        <td>
-          <input type="number" value="${p.qtd}" min="0" style="width:64px"
-            oninput="marcarPendente('${p.sku}', 'qtd', this.value, this)"/>
-        </td>
-        <td>
-          <input type="number" value="${p.min}" min="1" style="width:56px"
-            oninput="marcarPendente('${p.sku}', 'min', this.value, this)"/>
-        </td>
-        <td>${statusBadge(p)}</td>
-        <td>
-          <button class="btn-confirmar" id="confirmar-${p.sku.replace(/[^a-zA-Z0-9]/g,'-')}"
-            style="display:none" onclick="confirmarEdicao('${p.sku}')" title="Confirmar">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-            Salvar
-          </button>
-        </td>
-        <td>
-          <button class="btn icon-btn" onclick="removerProduto('${p.sku}')" title="Remover">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
-          </button>
-        </td>
-      </tr>`).join('')
-    : '<tr><td colspan="8" class="empty-state">Nenhum produto encontrado</td></tr>';
+    ? lista.map(p => {
+        const sid = p.sku.replace(/[^a-zA-Z0-9]/g, '-');
+        return `
+        <tr>
+          <td>${produtoCell(p.nome, p.sku)}</td>
+          <td>${corCell(p.cor)}</td>
+          <td><input type="number" value="${p.qtd}" min="0" style="width:64px" oninput="marcarPendente('${p.sku}','qtd',this.value,this)"/></td>
+          <td><input type="number" value="${p.min}" min="1" style="width:56px" oninput="marcarPendente('${p.sku}','min',this.value,this)"/></td>
+          <td>${statusBadge(p)}</td>
+          <td>
+            <button class="btn-confirmar" id="confirmar-${sid}" onclick="confirmarEdicao('${p.sku}')">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              Salvar
+            </button>
+          </td>
+          <td>
+            <button class="btn icon-btn" onclick="removerProduto('${p.sku}')" title="Remover">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
+            </button>
+          </td>
+        </tr>`;
+      }).join('')
+    : '<tr><td colspan="7" class="empty-state">Nenhum produto encontrado</td></tr>';
 }
 
 function marcarPendente(sku, campo, valor, input) {
   if (!edicoesPendentes[sku]) edicoesPendentes[sku] = {};
   edicoesPendentes[sku][campo] = valor;
-  const btnId = 'confirmar-' + sku.replace(/[^a-zA-Z0-9]/g, '-');
-  const btn = document.getElementById(btnId);
+  const btn = document.getElementById('confirmar-' + sku.replace(/[^a-zA-Z0-9]/g, '-'));
   if (btn) btn.style.display = 'inline-flex';
   input.classList.add('input-pendente');
 }
@@ -155,38 +201,27 @@ async function confirmarEdicao(sku) {
   if (!edits) return;
   const idx = produtos.findIndex(p => p.sku === sku);
   if (idx < 0) return;
-
   try {
     showLoading('Salvando...');
-    if (edits.qtd !== undefined) {
-      const qtd = Math.max(0, parseInt(edits.qtd) || 0);
-      produtos[idx].qtd = qtd;
-      await dbAtualizarQtd(sku, qtd);
-    }
-    if (edits.min !== undefined) {
-      const min = Math.max(1, parseInt(edits.min) || 1);
-      produtos[idx].min = min;
-      await dbAtualizarMin(sku, min);
-    }
+    if (edits.qtd !== undefined) { const qtd = Math.max(0, parseInt(edits.qtd)||0); produtos[idx].qtd = qtd; await dbAtualizarQtd(sku, qtd); }
+    if (edits.min !== undefined) { const min = Math.max(1, parseInt(edits.min)||1); produtos[idx].min = min; await dbAtualizarMin(sku, min); }
     delete edicoesPendentes[sku];
     renderEstoque(document.querySelector('.search')?.value || '');
     showToast('Alteração salva');
-  } catch(e) {
-    showToast('Erro ao salvar alteração', 'err');
-  } finally { hideLoading(); }
+  } catch { showToast('Erro ao salvar', 'err'); }
+  finally { hideLoading(); }
 }
 
 async function removerProduto(sku) {
   if (!confirm(`Remover ${sku} do estoque?`)) return;
   try {
-    showLoading('Removendo produto...');
+    showLoading('Removendo...');
     await dbRemoverProduto(sku);
     produtos = produtos.filter(p => p.sku !== sku);
     renderEstoque(document.querySelector('.search')?.value || '');
     showToast('Produto removido');
-  } catch(e) {
-    showToast('Erro ao remover produto', 'err');
-  } finally { hideLoading(); }
+  } catch { showToast('Erro ao remover', 'err'); }
+  finally { hideLoading(); }
 }
 
 async function adicionarProduto() {
@@ -194,11 +229,8 @@ async function adicionarProduto() {
   const sku  = document.getElementById('p-sku').value.trim().toUpperCase();
   const qtd  = parseInt(document.getElementById('p-qtd').value) || 0;
   const min  = parseInt(document.getElementById('p-min').value) || 5;
-
   if (!nome || !sku) { showToast('Preencha nome e SKU', 'err'); return; }
-
   const cor = sku.endsWith('-BR') ? 'Branco' : sku.endsWith('-PT') ? 'Preto' : '—';
-
   try {
     showLoading('Salvando produto...');
     await dbUpsertProduto([{ nome, sku, cor, qtd, min }]);
@@ -210,258 +242,167 @@ async function adicionarProduto() {
     document.getElementById('p-qtd').value  = 0;
     document.getElementById('p-min').value  = 5;
     renderEstoque('');
-    showToast('Produto salvo com sucesso');
-  } catch(e) {
-    showToast('Erro ao salvar produto', 'err');
-  } finally { hideLoading(); }
+    showToast('Produto salvo');
+  } catch { showToast('Erro ao salvar', 'err'); }
+  finally { hideLoading(); }
 }
 
-// ── Histórico ──
-async function carregarHistorico() {
-  try {
-    showLoading('Carregando histórico...');
-    historico = await dbGetHistorico();
-    renderHistorico();
-  } catch(e) {
-    showToast('Erro ao carregar histórico', 'err');
-  } finally { hideLoading(); }
+// ── Vendas ──
+function initDatas() {
+  const hoje = new Date();
+  const fmt  = d => d.toISOString().split('T')[0];
+  document.getElementById('data-fim').value   = fmt(hoje);
+  document.getElementById('data-inicio').value = fmt(hoje);
 }
 
-function renderHistorico() {
-  const el = document.getElementById('historico-list');
-  if (!historico.length) {
-    el.innerHTML = '<p class="empty-state">Sem movimentações registradas</p>';
-    return;
+function setAtalho(tipo, btn) {
+  document.querySelectorAll('.atalho-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const agora = new Date();
+  const fmt   = d => d.toISOString().split('T')[0];
+  let inicio, fim = fmt(agora);
+  if (tipo === 'hoje') {
+    inicio = fmt(agora);
+  } else if (tipo === 'semana') {
+    const s = new Date(agora); s.setDate(agora.getDate() - 6);
+    inicio = fmt(s);
+  } else if (tipo === 'mes') {
+    const s = new Date(agora); s.setDate(agora.getDate() - 29);
+    inicio = fmt(s);
+  } else if (tipo === 'mes_atual') {
+    inicio = fmt(new Date(agora.getFullYear(), agora.getMonth(), 1));
   }
+  document.getElementById('data-inicio').value = inicio;
+  document.getElementById('data-fim').value    = fim;
+  renderVendas();
+}
 
-  // Agrupa por data de importação (campo data) e número de NF
-  const porData = {};
-  historico.forEach(h => {
-    if (!porData[h.data]) porData[h.data] = {};
-    if (!porData[h.data][h.nf]) porData[h.data][h.nf] = { itens: [], totalPecas: 0, totalValor: 0 };
-    porData[h.data][h.nf].itens.push(h);
-    porData[h.data][h.nf].totalPecas += h.qtd;
-    porData[h.data][h.nf].totalValor += parseFloat(h.valor || 0);
-  });
+async function renderVendas() {
+  try {
+    showLoading('Carregando vendas...');
+    const inicio = document.getElementById('data-inicio').value;
+    const fim    = document.getElementById('data-fim').value;
+    if (!inicio || !fim) return;
 
-  let html = '';
-  Object.entries(porData).forEach(([data, nfs]) => {
-    const totalNFs    = Object.keys(nfs).length;
-    const totalPecas  = Object.values(nfs).reduce((s, n) => s + n.totalPecas, 0);
-    const totalValor  = Object.values(nfs).reduce((s, n) => s + n.totalValor, 0);
+    const dados  = await dbGetHistoricoIntervalo(inicio, fim);
+    const vendas = dados.filter(h => h.qtd > 0 && isWebhook(h));
 
-    html += `
-      <div class="hist-dia">
-        <div class="hist-dia-header">
+    const porNF = {};
+    vendas.forEach(h => {
+      if (!porNF[h.nf]) porNF[h.nf] = { nf: h.nf, data: h.data, itens: [], valor: 0, pecas: 0, criado_em: h.criado_em };
+      porNF[h.nf].itens.push(h);
+      porNF[h.nf].valor += parseFloat(h.valor || 0);
+      porNF[h.nf].pecas += h.qtd;
+    });
+
+    const nfs = Object.values(porNF).sort((a, b) => new Date(b.criado_em) - new Date(a.criado_em));
+
+    document.getElementById('v-pedidos').textContent    = nfs.length;
+    document.getElementById('v-pecas').textContent      = nfs.reduce((s, n) => s + n.pecas, 0);
+    document.getElementById('v-faturamento').textContent = brl(nfs.reduce((s, n) => s + n.valor, 0));
+
+    const el = document.getElementById('vendas-list');
+    el.innerHTML = nfs.length
+      ? nfs.map(n => `
+        <div class="venda-item">
           <div>
-            <span class="hist-data">${data}</span>
+            <div class="nome-produto">${n.nf}</div>
+            <div class="venda-meta">${n.data} · ${n.pecas} peça${n.pecas !== 1 ? 's' : ''} · ${n.itens.map(i => i.nome).join(', ')}</div>
           </div>
-          <div class="hist-dia-stats">
-            <span class="hist-stat"><strong>${totalNFs}</strong> NF${totalNFs !== 1 ? 's' : ''}</span>
-            <span class="hist-stat"><strong>${totalPecas}</strong> peça${totalPecas !== 1 ? 's' : ''}</span>
-            ${totalValor > 0 ? `<span class="hist-stat valor"><strong>${brl(totalValor)}</strong></span>` : ''}
-          </div>
-        </div>
-      </div>`;
-  });
-
-  el.innerHTML = html;
-}
-
-// ── Importar XML ──
-const dz = document.getElementById('drop-zone');
-dz.addEventListener('dragover',  e => { e.preventDefault(); dz.classList.add('drag'); });
-dz.addEventListener('dragleave', () => dz.classList.remove('drag'));
-dz.addEventListener('drop', e => {
-  e.preventDefault();
-  dz.classList.remove('drag');
-  handleFiles(e.dataTransfer.files);
-});
-
-function handleFiles(files) {
-  if (!files || !files.length) return;
-  xmlItens = [];
-  const chips = document.getElementById('file-chips');
-  chips.innerHTML = '';
-  let pending = files.length;
-
-  Array.from(files).forEach(file => {
-    const chip = document.createElement('span');
-    chip.className = 'chip';
-    chip.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg> ${file.name}`;
-    chips.appendChild(chip);
-
-    const r = new FileReader();
-    r.onload = e => {
-      parseXML(file.name, e.target.result);
-      pending--;
-      if (pending === 0) mostrarPreview();
-    };
-    r.readAsText(file);
-  });
-}
-
-function parseXML(filename, content) {
-  try {
-    const parser = new DOMParser();
-    const doc    = parser.parseFromString(content, 'text/xml');
-    const ns     = 'http://www.portalfiscal.inf.br/nfe';
-
-    const getNS = (parent, tag) =>
-      parent.getElementsByTagNameNS(ns, tag)[0] ||
-      parent.getElementsByTagName(tag)[0];
-
-    const infNFe = getNS(doc, 'infNFe');
-    const ide    = infNFe ? getNS(infNFe, 'ide') : null;
-    const nNF    = ide ? (getNS(ide, 'nNF') || { textContent: '' }).textContent : filename;
-
-    const dets = Array.from(
-      doc.getElementsByTagNameNS(ns, 'det').length
-        ? doc.getElementsByTagNameNS(ns, 'det')
-        : doc.getElementsByTagName('det')
-    );
-
-    dets.forEach(det => {
-      const prod   = getNS(det, 'prod');
-      if (!prod) return;
-      const cProd  = (getNS(prod, 'cProd')  || { textContent: '' }).textContent.trim().toUpperCase();
-      const xProd  = (getNS(prod, 'xProd')  || { textContent: '—' }).textContent.trim();
-      const qCom   = parseFloat((getNS(prod, 'qCom')  || { textContent: '0' }).textContent) || 0;
-      const vProd  = parseFloat((getNS(prod, 'vProd') || { textContent: '0' }).textContent) || 0;
-      if (cProd && qCom > 0) xmlItens.push({ nf: nNF || filename, sku: cProd, produto: xProd, qtd: Math.round(qCom), valor: vProd });
-    });
-  } catch(e) {
-    console.warn('Erro ao parsear XML:', filename, e);
-  }
-}
-
-function mostrarPreview() {
-  const pb = document.getElementById('preview-body');
-  if (!xmlItens.length) {
-    showToast('Nenhum item encontrado nos XMLs.', 'err');
-    return;
-  }
-
-  pb.innerHTML = xmlItens.map(item => {
-    const idx  = produtos.findIndex(p => normSku(p.sku) === normSku(item.sku));
-    const vinc = idx >= 0
-      ? `<span class="badge ok">&#10003; ${produtos[idx].nome} · ${produtos[idx].cor}</span>`
-      : `<span class="badge low">&#9651; SKU não cadastrado</span>`;
-    return `
-      <tr>
-        <td style="font-size:12px;color:var(--text-3)">${item.nf}</td>
-        <td>${produtoCell(item.sku, item.produto)}</td>
-        <td>${item.qtd}</td>
-        <td>${brl(item.valor)}</td>
-        <td>${vinc}</td>
-      </tr>`;
-  }).join('');
-
-  document.getElementById('preview-area').style.display = 'block';
-  document.getElementById('result-box').style.display   = 'none';
-}
-
-async function aplicarXML() {
-  if (!xmlItens.length) return;
-
-  try {
-    showLoading('Verificando NFs já importadas...');
-
-    const nfsNoLote       = [...new Set(xmlItens.map(i => i.nf))];
-    const nfsJaImportadas = await dbGetNFsJaImportadas(nfsNoLote);
-
-    const itensDuplicados = xmlItens.filter(i =>  nfsJaImportadas.includes(i.nf));
-    const itensNovos      = xmlItens.filter(i => !nfsJaImportadas.includes(i.nf));
-
-    const resultados = [];
-
-    itensDuplicados.forEach(item => {
-      resultados.push({ ok: false, duplicada: true, msg: `NF ${item.nf} (${item.sku}): já importada — ignorada` });
-    });
-
-    if (!itensNovos.length) {
-      document.getElementById('result-rows').innerHTML = resultados.map(r =>
-        `<div class="result-row"><span>${r.msg}</span><span class="err">Duplicada</span></div>`
-      ).join('');
-      document.getElementById('preview-area').style.display = 'none';
-      document.getElementById('result-box').style.display   = 'block';
-      xmlItens = [];
-      showToast('Todas as NFs deste lote já foram importadas anteriormente.', 'err');
-      return;
-    }
-
-    const deducoesPorSku = {};
-    itensNovos.forEach(item => {
-      const idx = produtos.findIndex(p => normSku(p.sku) === normSku(item.sku));
-      if (idx >= 0) {
-        const skuReal = produtos[idx].sku;
-        if (!deducoesPorSku[skuReal]) deducoesPorSku[skuReal] = { total: 0, produto: produtos[idx] };
-        deducoesPorSku[skuReal].total += item.qtd;
-        resultados.push({ ok: true, nf: item.nf, sku: skuReal, nome: produtos[idx].nome, cor: produtos[idx].cor, qtdDeduzida: item.qtd });
-      } else {
-        resultados.push({ ok: false, msg: `${item.sku}: SKU não encontrado no estoque` });
-      }
-    });
-
-    showLoading('Atualizando estoque...');
-    const atualizacoes = [];
-    Object.entries(deducoesPorSku).forEach(([sku, { total }]) => {
-      const idx  = produtos.findIndex(p => p.sku === sku);
-      const nova = Math.max(0, produtos[idx].qtd - total);
-      produtos[idx].qtd = nova;
-      atualizacoes.push({ sku, qtd: nova });
-    });
-
-    const novosHistorico = itensNovos
-      .filter(item => produtos.findIndex(p => normSku(p.sku) === normSku(item.sku)) >= 0)
-      .map(item => {
-        const p = produtos.find(p => normSku(p.sku) === normSku(item.sku));
-        return { nome: p.nome, cor: p.cor, sku: p.sku, qtd: item.qtd, nf: item.nf, data: hoje(), valor: item.valor };
-      });
-
-    await Promise.all(atualizacoes.map(a => dbAtualizarQtd(a.sku, a.qtd)));
-    if (novosHistorico.length) await dbInserirHistorico(novosHistorico);
-
-    const linhasResultado = resultados.map(r => {
-      if (r.duplicada) return `<div class="result-row warn"><span>⚠ ${r.msg}</span><span style="color:var(--amber);font-size:12px">Duplicada</span></div>`;
-      if (!r.ok)       return `<div class="result-row"><span>${r.msg}</span><span class="err">Ignorado</span></div>`;
-      return `<div class="result-row"><span>${r.nome} · ${r.cor} (${r.sku}) — NF ${r.nf}: −${r.qtdDeduzida} unid.</span><span class="ok">Deduzido</span></div>`;
-    }).join('');
-
-    document.getElementById('result-rows').innerHTML = linhasResultado;
-    document.getElementById('preview-area').style.display = 'none';
-    document.getElementById('result-box').style.display   = 'block';
-    xmlItens = [];
-    renderDash();
-
-    const msg = itensDuplicados.length
-      ? `Estoque atualizado. ${itensDuplicados.length} NF(s) duplicada(s) ignorada(s).`
-      : 'Estoque atualizado com sucesso!';
-    showToast(msg, itensDuplicados.length ? 'err' : 'ok');
+          <div class="venda-valor">${brl(n.valor)}</div>
+        </div>`).join('')
+      : '<p class="empty-state">Sem vendas no período selecionado</p>';
 
   } catch(e) {
-    console.error(e);
-    showToast('Erro ao atualizar estoque no banco', 'err');
+    showToast('Erro ao carregar vendas', 'err');
   } finally { hideLoading(); }
 }
 
-function limparXML() {
-  xmlItens = [];
-  document.getElementById('file-chips').innerHTML       = '';
-  document.getElementById('preview-area').style.display = 'none';
-  document.getElementById('result-box').style.display   = 'none';
-  document.getElementById('xml-input').value = '';
+// ── Notificações ──
+
+function adicionarNotificacao(tipo, titulo, sub) {
+  const n = { id: Date.now(), tipo, titulo, sub, criado_em: new Date().toISOString(), lida: false };
+  notificacoes.unshift(n);
+  if (notificacoes.length > 50) notificacoes = notificacoes.slice(0, 50);
+  localStorage.setItem('hl_notif', JSON.stringify(notificacoes));
+  atualizarBadge();
+}
+
+function atualizarBadge() {
+  const n = notificacoes.filter(n => !n.lida).length;
+  ['notif-count', 'notif-count-mobile'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.textContent = n; el.style.display = n > 0 ? 'inline-block' : 'none'; }
+  });
+}
+
+function renderNotificacoes() {
+  notificacoes.forEach(n => n.lida = true);
+  localStorage.setItem('hl_notif', JSON.stringify(notificacoes));
+  atualizarBadge();
+  const el = document.getElementById('notif-list');
+  if (!el) return;
+  el.innerHTML = notificacoes.length
+    ? notificacoes.map(n => `
+      <div class="notif-item">
+        <div class="notif-icon ${n.tipo === 'venda' ? 'venda' : 'cancel'}">
+          ${n.tipo === 'venda'
+            ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>'
+            : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
+          }
+        </div>
+        <div style="flex:1">
+          <div class="notif-titulo">${n.titulo}</div>
+          <div class="notif-sub">${n.sub}</div>
+        </div>
+        <div class="notif-tempo">${tempoRelativo(n.criado_em)}</div>
+      </div>`).join('')
+    : '<p class="empty-state">Nenhuma notificação</p>';
+}
+
+function limparNotificacoes() {
+  notificacoes = [];
+  localStorage.setItem('hl_notif', JSON.stringify(notificacoes));
+  atualizarBadge();
+  renderNotificacoes();
+}
+
+// ── Polling ──
+let ultimaVerificacao = new Date().toISOString();
+
+async function verificarNovasVendas() {
+  try {
+    const novas = await dbGetHistoricoApos(ultimaVerificacao);
+    if (!novas.length) return;
+    ultimaVerificacao = new Date().toISOString();
+    novas.forEach(h => {
+      if (!isWebhook(h)) return;
+      const tipo   = h.qtd > 0 ? 'venda' : 'cancelamento';
+      const titulo = h.qtd > 0 ? `Venda — ${h.nf}` : `Cancelamento — ${h.nf}`;
+      const sub    = `${h.nome} · ${h.cor} · ${Math.abs(h.qtd)} unid.${h.valor ? ` · ${brl(h.valor)}` : ''}`;
+      adicionarNotificacao(tipo, titulo, sub);
+    });
+    produtos = await dbGetProdutos();
+    renderDash();
+    await carregarMetricasHoje();
+    showToast(`${novas.filter(isWebhook).length} nova(s) movimentação(ões)`, 'info');
+  } catch { /* silencioso */ }
 }
 
 // ── Init ──
 async function init() {
   try {
     showLoading('Conectando ao banco de dados...');
+    setDataHoje();
+    initDatas();
     await seedProdutosSeVazio();
     produtos = await dbGetProdutos();
     renderDash();
+    await carregarMetricasHoje();
+    atualizarBadge();
+    setInterval(verificarNovasVendas, 60000);
   } catch(e) {
-    showToast('Erro ao conectar ao banco. Verifique sua conexão.', 'err');
+    showToast('Erro ao conectar ao banco.', 'err');
     console.error(e);
   } finally { hideLoading(); }
 }

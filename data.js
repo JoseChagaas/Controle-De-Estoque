@@ -114,3 +114,57 @@ async function seedProdutosSeVazio() {
   });
   await dbUpsertProduto(lista);
 }
+
+
+
+// Apenas registros via webhook (ML- ou SHOPEE-) — ignora histórico antigo de XML
+const isWebhook = h => h.nf && (h.nf.startsWith('ML-') || h.nf.startsWith('SHOPEE-'));
+
+async function dbGetHistoricoApos(dataISO) {
+  const res = await fetch(`${API('historico')}?criado_em=gt.${encodeURIComponent(dataISO)}&order=criado_em.asc`, { headers: HEADERS });
+  if (!res.ok) throw new Error('Erro ao buscar histórico recente');
+  const data = await res.json();
+  return data.filter(isWebhook);
+}
+
+async function dbGetHistoricoHoje() {
+  const hoje = new Date();
+  const inicio = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate()).toISOString();
+  const res = await fetch(`${API('historico')}?criado_em=gte.${inicio}&order=criado_em.desc`, { headers: HEADERS });
+  if (!res.ok) throw new Error('Erro ao buscar histórico de hoje');
+  const data = await res.json();
+  return data.filter(isWebhook);
+}
+
+async function dbGetHistoricoPeriodo(periodo) {
+  const agora = new Date();
+  let inicio;
+  if (periodo === 'dia') {
+    inicio = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
+  } else if (periodo === 'semana') {
+    const dia = agora.getDay();
+    inicio = new Date(agora);
+    inicio.setDate(agora.getDate() - dia);
+    inicio.setHours(0, 0, 0, 0);
+  } else {
+    inicio = new Date(agora.getFullYear(), agora.getMonth(), 1);
+  }
+  const res = await fetch(`${API('historico')}?criado_em=gte.${inicio.toISOString()}&order=criado_em.desc&limit=500`, { headers: HEADERS });
+  if (!res.ok) throw new Error('Erro ao buscar histórico do período');
+  const data = await res.json();
+  return data.filter(isWebhook);
+}
+
+async function dbGetHistoricoIntervalo(inicio, fim) {
+  // fim + 1 dia para incluir o dia final completo
+  const fimDate = new Date(fim);
+  fimDate.setDate(fimDate.getDate() + 1);
+  const fimISO = fimDate.toISOString();
+  const inicioISO = new Date(inicio).toISOString();
+  const res = await fetch(
+    `${API('historico')}?criado_em=gte.${inicioISO}&criado_em=lt.${fimISO}&order=criado_em.desc&limit=1000`,
+    { headers: HEADERS }
+  );
+  if (!res.ok) throw new Error('Erro ao buscar histórico do intervalo');
+  return res.json();
+}
