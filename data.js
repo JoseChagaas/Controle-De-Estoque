@@ -127,9 +127,19 @@ async function dbGetHistoricoApos(dataISO) {
   return data.filter(isWebhook);
 }
 
+// Converte data local (Brasília UTC-3) para UTC para queries no Supabase
+function inicioDiaBrasilia(offsetDias = 0) {
+  const agora = new Date();
+  // Ajusta para horário de Brasília
+  const brasilia = new Date(agora.getTime() - (3 * 60 * 60 * 1000));
+  // Zera horas para início do dia em Brasília
+  const inicioBR = new Date(brasilia.getFullYear(), brasilia.getMonth(), brasilia.getDate() + offsetDias);
+  // Converte de volta para UTC (adiciona 3h)
+  return new Date(inicioBR.getTime() + (3 * 60 * 60 * 1000));
+}
+
 async function dbGetHistoricoHoje() {
-  const hoje = new Date();
-  const inicio = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate()).toISOString();
+  const inicio = inicioDiaBrasilia(0).toISOString();
   const res = await fetch(`${API('historico')}?criado_em=gte.${inicio}&order=criado_em.desc`, { headers: HEADERS });
   if (!res.ok) throw new Error('Erro ao buscar histórico de hoje');
   const data = await res.json();
@@ -137,34 +147,37 @@ async function dbGetHistoricoHoje() {
 }
 
 async function dbGetHistoricoPeriodo(periodo) {
+  let inicioUTC;
   const agora = new Date();
-  let inicio;
+  const brasilia = new Date(agora.getTime() - (3 * 60 * 60 * 1000));
+
   if (periodo === 'dia') {
-    inicio = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
+    inicioUTC = inicioDiaBrasilia(0);
   } else if (periodo === 'semana') {
-    const dia = agora.getDay();
-    inicio = new Date(agora);
-    inicio.setDate(agora.getDate() - dia);
-    inicio.setHours(0, 0, 0, 0);
+    const diaSemana = brasilia.getDay();
+    const inicioBR  = new Date(brasilia.getFullYear(), brasilia.getMonth(), brasilia.getDate() - diaSemana);
+    inicioUTC = new Date(inicioBR.getTime() + (3 * 60 * 60 * 1000));
   } else {
-    inicio = new Date(agora.getFullYear(), agora.getMonth(), 1);
+    const inicioBR = new Date(brasilia.getFullYear(), brasilia.getMonth(), 1);
+    inicioUTC = new Date(inicioBR.getTime() + (3 * 60 * 60 * 1000));
   }
-  const res = await fetch(`${API('historico')}?criado_em=gte.${inicio.toISOString()}&order=criado_em.desc&limit=500`, { headers: HEADERS });
+
+  const res = await fetch(`${API('historico')}?criado_em=gte.${inicioUTC.toISOString()}&order=criado_em.desc&limit=500`, { headers: HEADERS });
   if (!res.ok) throw new Error('Erro ao buscar histórico do período');
   const data = await res.json();
   return data.filter(isWebhook);
 }
 
 async function dbGetHistoricoIntervalo(inicio, fim) {
-  // fim + 1 dia para incluir o dia final completo
-  const fimDate = new Date(fim);
-  fimDate.setDate(fimDate.getDate() + 1);
-  const fimISO = fimDate.toISOString();
-  const inicioISO = new Date(inicio).toISOString();
+  // Interpreta as datas como horário de Brasília (UTC-3)
+  const inicioUTC = new Date(new Date(inicio).getTime() + (3 * 60 * 60 * 1000));
+  // Fim: vai até o final do dia selecionado em Brasília (adiciona 1 dia + 3h)
+  const fimUTC    = new Date(new Date(fim).getTime() + (27 * 60 * 60 * 1000));
   const res = await fetch(
-    `${API('historico')}?criado_em=gte.${inicioISO}&criado_em=lt.${fimISO}&order=criado_em.desc&limit=1000`,
+    `${API('historico')}?criado_em=gte.${inicioUTC.toISOString()}&criado_em=lt.${fimUTC.toISOString()}&order=criado_em.desc&limit=1000`,
     { headers: HEADERS }
   );
   if (!res.ok) throw new Error('Erro ao buscar histórico do intervalo');
-  return res.json();
+  const data = await res.json();
+  return data.filter(isWebhook);
 }
