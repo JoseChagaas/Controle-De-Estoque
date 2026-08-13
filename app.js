@@ -4,8 +4,9 @@ let filtroCor    = 'todos';
 let filtroBusca  = '';
 let notificacoes = JSON.parse(localStorage.getItem('hl_notif') || '[]');
 
-const normSku = sku => sku.replace(/-/g, '').toUpperCase();
-const brl     = v   => Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const normSku   = sku => sku.replace(/-/g, '').toUpperCase();
+const brl       = v   => Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const isWebhook = h   => h.nf && (h.nf.startsWith('ML-') || h.nf.startsWith('SHOPEE-'));
 
 // ── Loading ──
 function showLoading(msg = 'Carregando...') {
@@ -208,7 +209,6 @@ async function adicionarProduto() {
 }
 
 // ── Notificações ──
-const isWebhook = h => h.nf && (h.nf.startsWith('ML-') || h.nf.startsWith('SHOPEE-'));
 
 function adicionarNotificacao(tipo, titulo, sub, criado_em) {
   const jaExiste = notificacoes.some(n => n.titulo === titulo && n.sub === sub);
