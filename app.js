@@ -368,24 +368,43 @@ function limparNotificacoes() {
 }
 
 // ── Polling ──
-let ultimaVerificacao = new Date().toISOString();
+// Guarda o timestamp da última verificação no localStorage
+// para persistir entre sessões
+function getUltimaVerificacao() {
+  return localStorage.getItem('hl_ultima_verificacao') || 
+    new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(); // padrão: últimas 24h
+}
+
+function setUltimaVerificacao(iso) {
+  localStorage.setItem('hl_ultima_verificacao', iso);
+}
 
 async function verificarNovasVendas() {
   try {
-    const novas = await dbGetHistoricoApos(ultimaVerificacao);
+    const desde = getUltimaVerificacao();
+    const novas = await dbGetHistoricoApos(desde);
     if (!novas.length) return;
-    ultimaVerificacao = new Date().toISOString();
+
+    const agora = new Date().toISOString();
+    setUltimaVerificacao(agora);
+
     novas.forEach(h => {
       if (!isWebhook(h)) return;
+      // Evita duplicar notificações que já existem
+      const jaExiste = notificacoes.some(n => n.id === h.id || n.titulo?.includes(h.nf));
+      if (jaExiste) return;
       const tipo   = h.qtd > 0 ? 'venda' : 'cancelamento';
       const titulo = h.qtd > 0 ? `Venda — ${h.nf}` : `Cancelamento — ${h.nf}`;
-      const sub    = `${h.nome} · ${h.cor} · ${Math.abs(h.qtd)} unid.${h.valor ? ` · ${brl(h.valor)}` : ''}`;
+      const sub    = `${h.nome} · ${h.cor} · ${Math.abs(h.qtd)} unid.${h.valor > 0 ? ` · ${brl(h.valor)}` : ''}`;
       adicionarNotificacao(tipo, titulo, sub);
     });
-    produtos = await dbGetProdutos();
-    renderDash();
-    await carregarMetricasHoje();
-    showToast(`${novas.filter(isWebhook).length} nova(s) movimentação(ões)`, 'info');
+
+    const novasWebhook = novas.filter(isWebhook);
+    if (novasWebhook.length > 0) {
+      produtos = await dbGetProdutos();
+      renderDash();
+      await carregarMetricasHoje();
+    }
   } catch { /* silencioso */ }
 }
 
@@ -399,7 +418,10 @@ async function init() {
     produtos = await dbGetProdutos();
     renderDash();
     await carregarMetricasHoje();
+    // Verifica vendas não vistas ao abrir o app
+    await verificarNovasVendas();
     atualizarBadge();
+    // Continua verificando a cada 60s
     setInterval(verificarNovasVendas, 60000);
   } catch(e) {
     showToast('Erro ao conectar ao banco.', 'err');
