@@ -1,14 +1,11 @@
 // ── Estado global ──
-let produtos    = [];
-let historico   = [];
-let filtroCor   = 'todos';
-let filtroBusca = '';
+let produtos     = [];
+let filtroCor    = 'todos';
+let filtroBusca  = '';
 let notificacoes = JSON.parse(localStorage.getItem('hl_notif') || '[]');
-let sidebarCollapsed = false;
 
 const normSku = sku => sku.replace(/-/g, '').toUpperCase();
 const brl     = v   => Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-const hoje    = ()  => new Date().toLocaleDateString('pt-BR');
 
 // ── Loading ──
 function showLoading(msg = 'Carregando...') {
@@ -28,30 +25,10 @@ function showToast(msg, tipo = 'ok') {
   setTimeout(() => { t.style.display = 'none'; }, 3500);
 }
 
-// ── Sidebar collapse ──
-function toggleSidebar() {
-  sidebarCollapsed = !sidebarCollapsed;
-  const sb   = document.getElementById('sidebar');
-  const main = document.getElementById('main');
-  const icon = document.getElementById('collapse-icon');
-  if (sidebarCollapsed) {
-    sb.classList.add('collapsed');
-    main.classList.add('collapsed');
-    icon.innerHTML = '<polyline points="9 18 15 12 9 6"/>';
-  } else {
-    sb.classList.remove('collapsed');
-    main.classList.remove('collapsed');
-    icon.innerHTML = '<polyline points="15 18 9 12 15 6"/>';
-  }
-}
-
 // ── Data ──
 function setDataHoje() {
   const el = document.getElementById('data-hoje');
-  if (el) {
-    const d = new Date();
-    el.textContent = d.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
-  }
+  if (el) el.textContent = new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
 // ── Navegação ──
@@ -64,7 +41,6 @@ function switchTab(t) {
   document.getElementById(`tab-${t}`).classList.add('active');
   if (t === 'dashboard')    renderDash();
   if (t === 'estoque')      renderEstoque('');
-  if (t === 'vendas')       renderVendas();
   if (t === 'notificacoes') renderNotificacoes();
 }
 
@@ -105,22 +81,6 @@ function setFiltroCor(cor) {
 function setFiltroBusca(v) {
   filtroBusca = v;
   renderDash();
-}
-
-async function carregarMetricasHoje() {
-  try {
-    const dados = await dbGetHistoricoHoje();
-    const vendas = dados.filter(h => h.qtd > 0 && isWebhook(h));
-    const nfs    = [...new Set(vendas.map(h => h.nf))];
-    const valor  = vendas.reduce((s, h) => s + parseFloat(h.valor || 0), 0);
-    document.getElementById('m-faturamento').textContent = brl(valor);
-    document.getElementById('m-vendas-hoje').textContent = `${nfs.length} pedido${nfs.length !== 1 ? 's' : ''}`;
-    document.getElementById('m-fat-sub').textContent  = `— ${nfs.length > 0 ? '+' : ''}${nfs.length} hoje`;
-    document.getElementById('m-vend-sub').textContent = `— ${nfs.length > 0 ? 'atualizado' : 'sem vendas'}`;
-  } catch {
-    document.getElementById('m-faturamento').textContent = 'R$ 0,00';
-    document.getElementById('m-vendas-hoje').textContent = '0 pedidos';
-  }
 }
 
 function renderDash() {
@@ -247,83 +207,15 @@ async function adicionarProduto() {
   finally { hideLoading(); }
 }
 
-// ── Vendas ──
-function initDatas() {
-  const hoje = new Date();
-  const fmt  = d => d.toISOString().split('T')[0];
-  document.getElementById('data-fim').value   = fmt(hoje);
-  document.getElementById('data-inicio').value = fmt(hoje);
-}
-
-function setAtalho(tipo, btn) {
-  document.querySelectorAll('.atalho-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  const agora = new Date();
-  const fmt   = d => d.toISOString().split('T')[0];
-  let inicio, fim = fmt(agora);
-  if (tipo === 'hoje') {
-    inicio = fmt(agora);
-  } else if (tipo === 'semana') {
-    const s = new Date(agora); s.setDate(agora.getDate() - 6);
-    inicio = fmt(s);
-  } else if (tipo === 'mes') {
-    const s = new Date(agora); s.setDate(agora.getDate() - 29);
-    inicio = fmt(s);
-  } else if (tipo === 'mes_atual') {
-    inicio = fmt(new Date(agora.getFullYear(), agora.getMonth(), 1));
-  }
-  document.getElementById('data-inicio').value = inicio;
-  document.getElementById('data-fim').value    = fim;
-  renderVendas();
-}
-
-async function renderVendas() {
-  try {
-    showLoading('Carregando vendas...');
-    const inicio = document.getElementById('data-inicio').value;
-    const fim    = document.getElementById('data-fim').value;
-    if (!inicio || !fim) return;
-
-    const dados  = await dbGetHistoricoIntervalo(inicio, fim);
-    const vendas = dados.filter(h => h.qtd > 0 && isWebhook(h));
-
-    const porNF = {};
-    vendas.forEach(h => {
-      if (!porNF[h.nf]) porNF[h.nf] = { nf: h.nf, data: h.data, itens: [], valor: 0, pecas: 0, criado_em: h.criado_em };
-      porNF[h.nf].itens.push(h);
-      porNF[h.nf].valor += parseFloat(h.valor || 0);
-      porNF[h.nf].pecas += h.qtd;
-    });
-
-    const nfs = Object.values(porNF).sort((a, b) => new Date(b.criado_em) - new Date(a.criado_em));
-
-    document.getElementById('v-pedidos').textContent    = nfs.length;
-    document.getElementById('v-pecas').textContent      = nfs.reduce((s, n) => s + n.pecas, 0);
-    document.getElementById('v-faturamento').textContent = brl(nfs.reduce((s, n) => s + n.valor, 0));
-
-    const el = document.getElementById('vendas-list');
-    el.innerHTML = nfs.length
-      ? nfs.map(n => `
-        <div class="venda-item">
-          <div>
-            <div class="nome-produto">${n.nf}</div>
-            <div class="venda-meta">${n.data} · ${n.pecas} peça${n.pecas !== 1 ? 's' : ''} · ${n.itens.map(i => i.nome).join(', ')}</div>
-          </div>
-          <div class="venda-valor">${brl(n.valor)}</div>
-        </div>`).join('')
-      : '<p class="empty-state">Sem vendas no período selecionado</p>';
-
-  } catch(e) {
-    showToast('Erro ao carregar vendas', 'err');
-  } finally { hideLoading(); }
-}
-
 // ── Notificações ──
+const isWebhook = h => h.nf && (h.nf.startsWith('ML-') || h.nf.startsWith('SHOPEE-'));
 
-function adicionarNotificacao(tipo, titulo, sub) {
-  const n = { id: Date.now(), tipo, titulo, sub, criado_em: new Date().toISOString(), lida: false };
+function adicionarNotificacao(tipo, titulo, sub, criado_em) {
+  const jaExiste = notificacoes.some(n => n.titulo === titulo && n.sub === sub);
+  if (jaExiste) return;
+  const n = { id: Date.now(), tipo, titulo, sub, criado_em: criado_em || new Date().toISOString(), lida: false };
   notificacoes.unshift(n);
-  if (notificacoes.length > 50) notificacoes = notificacoes.slice(0, 50);
+  if (notificacoes.length > 100) notificacoes = notificacoes.slice(0, 100);
   localStorage.setItem('hl_notif', JSON.stringify(notificacoes));
   atualizarBadge();
 }
@@ -368,11 +260,9 @@ function limparNotificacoes() {
 }
 
 // ── Polling ──
-// Guarda o timestamp da última verificação no localStorage
-// para persistir entre sessões
 function getUltimaVerificacao() {
-  return localStorage.getItem('hl_ultima_verificacao') || 
-    new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(); // padrão: últimas 24h
+  return localStorage.getItem('hl_ultima_verificacao') ||
+    new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 }
 
 function setUltimaVerificacao(iso) {
@@ -385,25 +275,21 @@ async function verificarNovasVendas() {
     const novas = await dbGetHistoricoApos(desde);
     if (!novas.length) return;
 
-    const agora = new Date().toISOString();
-    setUltimaVerificacao(agora);
+    setUltimaVerificacao(new Date().toISOString());
 
+    let temNova = false;
     novas.forEach(h => {
       if (!isWebhook(h)) return;
-      // Evita duplicar notificações que já existem
-      const jaExiste = notificacoes.some(n => n.id === h.id || n.titulo?.includes(h.nf));
-      if (jaExiste) return;
       const tipo   = h.qtd > 0 ? 'venda' : 'cancelamento';
       const titulo = h.qtd > 0 ? `Venda — ${h.nf}` : `Cancelamento — ${h.nf}`;
-      const sub    = `${h.nome} · ${h.cor} · ${Math.abs(h.qtd)} unid.${h.valor > 0 ? ` · ${brl(h.valor)}` : ''}`;
-      adicionarNotificacao(tipo, titulo, sub);
+      const sub    = `${h.nome} · ${h.cor} · ${Math.abs(h.qtd)} unid.`;
+      adicionarNotificacao(tipo, titulo, sub, h.criado_em);
+      temNova = true;
     });
 
-    const novasWebhook = novas.filter(isWebhook);
-    if (novasWebhook.length > 0) {
+    if (temNova) {
       produtos = await dbGetProdutos();
       renderDash();
-      await carregarMetricasHoje();
     }
   } catch { /* silencioso */ }
 }
@@ -413,15 +299,11 @@ async function init() {
   try {
     showLoading('Conectando ao banco de dados...');
     setDataHoje();
-    initDatas();
     await seedProdutosSeVazio();
     produtos = await dbGetProdutos();
     renderDash();
-    await carregarMetricasHoje();
-    // Verifica vendas não vistas ao abrir o app
     await verificarNovasVendas();
     atualizarBadge();
-    // Continua verificando a cada 60s
     setInterval(verificarNovasVendas, 60000);
   } catch(e) {
     showToast('Erro ao conectar ao banco.', 'err');

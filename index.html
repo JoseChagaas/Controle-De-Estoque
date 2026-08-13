@@ -11,7 +11,6 @@
 </head>
 <body>
 
-  <!-- Sidebar desktop -->
   <aside class="sidebar" id="sidebar">
     <div class="brand">
       <div class="brand-icon">
@@ -31,25 +30,17 @@
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
         <span>Estoque</span>
       </button>
-      <button class="nav-item" onclick="switchTab('vendas')" data-tab="vendas">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
-        <span>Vendas</span>
-      </button>
       <button class="nav-item" onclick="switchTab('notificacoes')" data-tab="notificacoes">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
         <span>Notificações</span>
         <span class="notif-badge" id="notif-count" style="display:none">0</span>
       </button>
     </nav>
-    <button class="sidebar-collapse" onclick="toggleSidebar()" title="Recolher menu">
-      <svg id="collapse-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-    </button>
     <div class="sidebar-footer">
-      <span class="version-badge">v2.0</span>
+      <span class="version-badge">v2.1</span>
     </div>
   </aside>
 
-  <!-- Nav mobile -->
   <nav class="mobile-nav" id="mobile-nav">
     <button class="active" onclick="switchTab('dashboard')" data-tab="dashboard">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
@@ -58,10 +49,6 @@
     <button onclick="switchTab('estoque')" data-tab="estoque">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/></svg>
       <span>Estoque</span>
-    </button>
-    <button onclick="switchTab('vendas')" data-tab="vendas">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
-      <span>Vendas</span>
     </button>
     <button onclick="switchTab('notificacoes')" data-tab="notificacoes" style="position:relative">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
@@ -79,38 +66,22 @@
           <h1>Dashboard</h1>
           <p class="page-sub" id="data-hoje"></p>
         </div>
-        <button class="btn-today" onclick="switchTab('dashboard')" style="display:none">
       </div>
 
       <div class="metric-grid">
-        <div class="metric-card green">
-          <div class="metric-card-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg></div>
-          <div class="metric-card-body">
-            <p class="metric-card-label">Faturamento hoje</p>
-            <p class="metric-card-value" id="m-faturamento">R$ 0,00</p>
-            <p class="metric-card-sub" id="m-fat-sub">— 0% vs ontem</p>
+        <div class="metric-card gray">
+          <div class="metric-card-icon gray-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 8h14M5 8a2 2 0 010-4h14a2 2 0 010 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8"/></svg>
           </div>
-          <svg class="metric-wave" viewBox="0 0 120 30" preserveAspectRatio="none"><path d="M0 20 Q15 10 30 18 Q45 26 60 15 Q75 4 90 18 Q105 28 120 15 L120 30 L0 30 Z" fill="rgba(45,125,70,0.12)"/></svg>
-        </div>
-        <div class="metric-card blue">
-          <div class="metric-card-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg></div>
-          <div class="metric-card-body">
-            <p class="metric-card-label">Vendas hoje</p>
-            <p class="metric-card-value" id="m-vendas-hoje">0 pedidos</p>
-            <p class="metric-card-sub" id="m-vend-sub">— 0% vs ontem</p>
-          </div>
-          <svg class="metric-wave" viewBox="0 0 120 30" preserveAspectRatio="none"><path d="M0 20 Q15 10 30 18 Q45 26 60 15 Q75 4 90 18 Q105 28 120 15 L120 30 L0 30 Z" fill="rgba(26,111,181,0.12)"/></svg>
-        </div>
-        <div class="metric-card gray" onclick="switchTab('estoque')" style="cursor:pointer">
-          <div class="metric-card-icon gray-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 8h14M5 8a2 2 0 010-4h14a2 2 0 010 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8"/></svg></div>
           <div class="metric-card-body">
             <p class="metric-card-label">Total de produtos</p>
             <p class="metric-card-value dark" id="m-total">0</p>
-            <p class="metric-card-link">Ver todos os produtos →</p>
           </div>
         </div>
         <div class="metric-card red" onclick="switchTab('estoque')" style="cursor:pointer">
-          <div class="metric-card-icon red-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
+          <div class="metric-card-icon red-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          </div>
           <div class="metric-card-body">
             <p class="metric-card-label">Estoque crítico</p>
             <p class="metric-card-value danger" id="m-low">0</p>
@@ -134,20 +105,12 @@
           </div>
           <div class="search-wrap">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="search-icon"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input type="text" class="search search-with-icon" placeholder="Buscar produto..." oninput="setFiltroBusca(this.value)" id="dash-search"/>
+            <input type="text" class="search search-with-icon" placeholder="Buscar produto..." oninput="setFiltroBusca(this.value)"/>
           </div>
         </div>
         <div class="table-wrap">
           <table>
-            <thead>
-              <tr>
-                <th>PRODUTO</th>
-                <th>COR</th>
-                <th>QTD</th>
-                <th>STATUS</th>
-                <th></th>
-              </tr>
-            </thead>
+            <thead><tr><th>PRODUTO</th><th>COR</th><th>QTD</th><th>STATUS</th><th></th></tr></thead>
             <tbody id="dash-table"></tbody>
           </table>
         </div>
@@ -192,63 +155,6 @@
       </div>
     </section>
 
-    <!-- VENDAS -->
-    <section class="tab-section" id="tab-vendas">
-      <div class="page-header">
-        <div>
-          <h1>Histórico de Vendas</h1>
-          <p class="page-sub">Acompanhe seu desempenho por período</p>
-        </div>
-      </div>
-
-      <!-- Seletor de período com calendário -->
-      <div class="card periodo-card">
-        <div class="periodo-row">
-          <div class="periodo-field">
-            <label class="periodo-label">Data inicial</label>
-            <input type="date" id="data-inicio" class="date-input" onchange="renderVendas()"/>
-          </div>
-          <div class="periodo-sep">até</div>
-          <div class="periodo-field">
-            <label class="periodo-label">Data final</label>
-            <input type="date" id="data-fim" class="date-input" onchange="renderVendas()"/>
-          </div>
-          <div class="periodo-atalhos">
-            <button class="atalho-btn active" onclick="setAtalho('hoje', this)">Hoje</button>
-            <button class="atalho-btn" onclick="setAtalho('semana', this)">7 dias</button>
-            <button class="atalho-btn" onclick="setAtalho('mes', this)">30 dias</button>
-            <button class="atalho-btn" onclick="setAtalho('mes_atual', this)">Este mês</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="metric-grid" style="grid-template-columns:repeat(3,1fr)">
-        <div class="metric-card gray">
-          <div class="metric-card-body">
-            <p class="metric-card-label">Total de pedidos</p>
-            <p class="metric-card-value dark" id="v-pedidos">0</p>
-          </div>
-        </div>
-        <div class="metric-card gray">
-          <div class="metric-card-body">
-            <p class="metric-card-label">Peças vendidas</p>
-            <p class="metric-card-value dark" id="v-pecas">0</p>
-          </div>
-        </div>
-        <div class="metric-card green">
-          <div class="metric-card-body">
-            <p class="metric-card-label">Faturamento</p>
-            <p class="metric-card-value" id="v-faturamento">R$ 0,00</p>
-          </div>
-        </div>
-      </div>
-
-      <div class="card">
-        <p class="section-label">Detalhamento</p>
-        <div id="vendas-list"><p class="empty-state">Sem vendas no período selecionado</p></div>
-      </div>
-    </section>
-
     <!-- NOTIFICAÇÕES -->
     <section class="tab-section" id="tab-notificacoes">
       <div class="page-header">
@@ -265,13 +171,11 @@
 
   </main>
 
-  <!-- Footer -->
   <footer class="app-footer">
     <span>Estoque Hyper Logic</span>
-    <span class="version-badge">v2.0</span>
+    <span class="version-badge">v2.1</span>
   </footer>
 
-  <!-- Loading overlay -->
   <div id="loading-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:999;align-items:center;justify-content:center;">
     <div class="loading-box">
       <svg class="spin" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#E84E4E" stroke-width="2.5" stroke-linecap="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
