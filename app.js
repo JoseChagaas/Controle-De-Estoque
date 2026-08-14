@@ -210,9 +210,22 @@ async function adicionarProduto() {
 
 // ── Notificações ──
 
+// Retorna o timestamp da última limpeza — notificações anteriores são ignoradas
+function getLimpezaTimestamp() {
+  return localStorage.getItem('hl_notif_limpeza') || new Date(0).toISOString();
+}
+
+function plataforma(nf) {
+  if (nf.startsWith('ML-') || nf.startsWith('CANCELADO-ML-')) return 'Mercado Livre';
+  if (nf.startsWith('SHOPEE-') || nf.startsWith('CANCELADO-SHOPEE-')) return 'Shopee';
+  return '';
+}
+
 function adicionarNotificacao(tipo, titulo, sub, criado_em) {
-  const jaExiste = notificacoes.some(n => n.titulo === titulo && n.sub === sub);
-  if (jaExiste) return;
+  // Ignora notificações anteriores à última limpeza
+  if (new Date(criado_em) <= new Date(getLimpezaTimestamp())) return;
+  // Evita duplicatas pelo título
+  if (notificacoes.some(n => n.titulo === titulo)) return;
   const n = { id: Date.now(), tipo, titulo, sub, criado_em: criado_em || new Date().toISOString(), lida: false };
   notificacoes.unshift(n);
   if (notificacoes.length > 100) notificacoes = notificacoes.slice(0, 100);
@@ -253,6 +266,10 @@ function renderNotificacoes() {
 }
 
 function limparNotificacoes() {
+  // Salva o timestamp da limpeza — novas buscas vão ignorar tudo antes disso
+  localStorage.setItem('hl_notif_limpeza', new Date().toISOString());
+  // Também avança o ultimaVerificacao para não rebuscar
+  localStorage.setItem('hl_ultima_verificacao', new Date().toISOString());
   notificacoes = [];
   localStorage.setItem('hl_notif', JSON.stringify(notificacoes));
   atualizarBadge();
@@ -261,8 +278,11 @@ function limparNotificacoes() {
 
 // ── Polling ──
 function getUltimaVerificacao() {
-  return localStorage.getItem('hl_ultima_verificacao') ||
+  // Usa o mais recente entre limpeza e última verificação
+  const limpeza     = getLimpezaTimestamp();
+  const verificacao = localStorage.getItem('hl_ultima_verificacao') ||
     new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  return new Date(limpeza) > new Date(verificacao) ? limpeza : verificacao;
 }
 
 function setUltimaVerificacao(iso) {
@@ -280,9 +300,18 @@ async function verificarNovasVendas() {
     let temNova = false;
     novas.forEach(h => {
       if (!isWebhook(h)) return;
-      const tipo   = h.qtd > 0 ? 'venda' : 'cancelamento';
-      const titulo = h.qtd > 0 ? `Venda — ${h.nf}` : `Cancelamento — ${h.nf}`;
-      const sub    = `${h.nome} · ${h.cor} · ${Math.abs(h.qtd)} unid.`;
+      const plat    = plataforma(h.nf);
+      const tipo    = h.qtd > 0 ? 'venda' : 'cancelamento';
+      // Busca a quantidade atual do produto para calcular o antes
+      const prod    = produtos.find(p => p.sku === h.sku);
+      const depois  = prod ? prod.qtd : '?';
+      const antes   = h.qtd > 0 ? depois + h.qtd : depois - Math.abs(h.qtd);
+      const titulo  = h.qtd > 0
+        ? `${plat} — Venda confirmada`
+        : `${plat} — Cancelamento`;
+      const sub     = h.qtd > 0
+        ? `${h.nome} · ${h.cor} · ${h.qtd} unid. vendida${h.qtd > 1 ? 's' : ''} | Estoque: ${antes} → ${depois}`
+        : `${h.nome} · ${h.cor} · ${Math.abs(h.qtd)} unid. devolvida${Math.abs(h.qtd) > 1 ? 's' : ''} | Estoque: ${antes} → ${depois}`;
       adicionarNotificacao(tipo, titulo, sub, h.criado_em);
       temNova = true;
     });
