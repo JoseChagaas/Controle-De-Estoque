@@ -221,12 +221,12 @@ function plataforma(nf) {
   return '';
 }
 
-function adicionarNotificacao(tipo, titulo, sub, criado_em) {
+function adicionarNotificacao(tipo, titulo, sub, criado_em, chave) {
   // Ignora notificações anteriores à última limpeza
   if (new Date(criado_em) <= new Date(getLimpezaTimestamp())) return;
-  // Evita duplicatas pelo título
-  if (notificacoes.some(n => n.titulo === titulo)) return;
-  const n = { id: Date.now(), tipo, titulo, sub, criado_em: criado_em || new Date().toISOString(), lida: false };
+  // Evita duplicatas pela chave única (id do registro no histórico), não pelo título
+  if (chave && notificacoes.some(n => n.chave === chave)) return;
+  const n = { id: Date.now(), chave, tipo, titulo, sub, criado_em: criado_em || new Date().toISOString(), lida: false };
   notificacoes.unshift(n);
   if (notificacoes.length > 100) notificacoes = notificacoes.slice(0, 100);
   localStorage.setItem('hl_notif', JSON.stringify(notificacoes));
@@ -312,7 +312,7 @@ async function verificarNovasVendas() {
       const sub     = h.qtd > 0
         ? `${h.nome} · ${h.cor} · ${h.qtd} unid. vendida${h.qtd > 1 ? 's' : ''} | Estoque: ${antes} → ${depois}`
         : `${h.nome} · ${h.cor} · ${Math.abs(h.qtd)} unid. devolvida${Math.abs(h.qtd) > 1 ? 's' : ''} | Estoque: ${antes} → ${depois}`;
-      adicionarNotificacao(tipo, titulo, sub, h.criado_em);
+      adicionarNotificacao(tipo, titulo, sub, h.criado_em, h.id);
       temNova = true;
     });
 
