@@ -117,9 +117,6 @@ async function seedProdutosSeVazio() {
 
 
 
-// Apenas registros via webhook (ML- ou SHOPEE-) — ignora histórico antigo de XML
-const isWebhook = h => h.nf && (h.nf.startsWith('ML-') || h.nf.startsWith('SHOPEE-'));
-
 async function dbGetHistoricoApos(dataISO) {
   const res = await fetch(`${API('historico')}?criado_em=gt.${encodeURIComponent(dataISO)}&order=criado_em.asc`, { headers: HEADERS });
   if (!res.ok) throw new Error('Erro ao buscar histórico recente');
